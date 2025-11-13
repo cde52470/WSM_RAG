@@ -1,0 +1,41 @@
+
+services:
+  # 服務 1: Ollama 裁判模型
+  ollama:
+    # --- [修改這裡] ---
+    # 註解掉 image: ollama/ollama
+    # image: ollama/ollama 
+    # 改成使用我們客製化的 Dockerfile
+    build: ./ollama_service
+    # --------------------
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: 1
+
+  # 服務 2: 你的 RAG 應用程式
+  app:
+    # (app 服務的內容保持不變)
+    build: .
+    depends_on:
+      - ollama
+    volumes:
+      - ./predictions:/app/predictions
+      - ./result:/app/result
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: 1
+
+volumes:
+  ollama_storage:

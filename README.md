@@ -1,0 +1,105 @@
+# WSM RAG 專案評估指南
+
+本專案使用 `docker-compose` 建立一個可攜式、自包含的 RAG（Retrieval-Augmented Generation）評估環境。它包含兩個服務：
+1.  **`app`**：執行主要 RAG 程式 (`My_RAG`) 和評估工具 (`rageval`) 的 Python 服務。
+2.  **`ollama`**：一個專門用來跑「裁判模型 (Judge LLM)」的服務，`rageval` 會呼叫它來為 RAG 答案評分。
+
+使用 `docker-compose` 可以確保所有協作者都有一致的執行環境，無需在本機手動安裝 Ollama 或處理複雜的網路設定。
+
+## 執行需求 (Prerequisites)
+
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+* 一台有 **NVIDIA GPU** 的主機 (本專案已針對 6GB VRAM 進行優化)
+* 確保 Docker Desktop 已設定使用 NVIDIA GPU (通常是預設)
+
+## ⚡ 如何執行 (How to Run)
+
+**這輩子只需要這一個指令。**
+
+在專案的根目錄 (包含 `docker-compose.yml` 的地方)，打開你的終端機 (PowerShell / Terminal) 並執行：
+
+```bash
+docker-compose up --build
+```
+
+### 第一次執行會發生什麼？
+
+1.  **Build Services:** `docker-compose` 會使用 `Dockerfile` 和 `ollama_service/Dockerfile` 分別建立 `app` 和 `ollama_service` 的映像。這個過程現在非常快，因為模型不會在 build 階段下載。
+2.  **Start Services:** 啟動 `ollama_service` 和 `app` 兩個 container。
+3.  **Run `entrypoint.sh` & Download Model:**
+    *   `ollama_service` 容器啟動後，會執行 `entrypoint.sh` 腳本。
+    *   此腳本會先啟動 Ollama 伺服器，然後**自動下載 `gemma:2b` 模型** (約 2.5GB)。
+    *   模型會被下載到 `ollama_storage` 這個 Volume 中，這意味著**未來再啟動就無需重新下載**。
+    *   **(請在此時保持耐心，這只需要一次)**
+4.  **Run `run.sh`:** 當 `ollama_service` 準備就緒後，`app` 服務會自動開始執行 `run.sh` 腳本 (包含 RAG 預測和評估)。
+5.  **Run Evaluation:** `ollama_service` 會將模型載入 VRAM，`rageval` 的評估進度條就會開始跑了。
+
+### 未來執行
+
+如果你沒有修改任何程式碼，只想重新跑一次評估，你只需要執行：
+
+```bash
+docker-compose up
+```
+
+## 📜 專案配置修改總結
+
+為了讓專案能在有限的硬體資源上穩定運行、方便協作並解決模型持久化問題，我們做了以下關鍵修改：
+
+### 1. `docker-compose.yml` (修改)
+
+*   **目的：** 用來管理 `app` 和 `ollama_service` 兩個服務。
+*   **配置：**
+    *   `ollama_service` 服務：改為由本地 `ollama_service/Dockerfile` build 而來。
+    *   `volumes`: 為 `ollama_service` 建立一個永久儲存卷 (`ollama_storage`) 來存放下載的模型，確保模型在容器重啟後依然存在。
+
+### 2. `ollama_service/entrypoint.sh` (新增)
+
+*   **目的：** 將模型下載從「建構階段」移至「執行階段」，確保模型被下載到掛載的 Volume 中。
+*   **策略：**
+    1.  在容器啟動時，先在背景執行 `ollama serve`。
+    2.  輪詢偵測，直到 Ollama 伺服器完全就緒。
+    3.  執行 `ollama pull gemma:2b`，將模型下載到 `ollama_storage` Volume。
+    4.  保持容器運行，讓 `app` 服務可以連接。
+
+### 3. `ollama_service/Dockerfile` (修改)
+
+*   **目的：** 設定 `ollama_service` 的啟動行為，並確保必要的工具已安裝。
+*   **修改：**
+    *   **新增 `RUN apt-get update && apt-get install -y curl`**：手動安裝 `curl` 工具，因為 `entrypoint.sh` 腳本需要它來檢查 Ollama 服務狀態。
+    *   移除在 build 階段執行 `RUN ollama pull ...` 的指令。
+    *   改為複製 `entrypoint.sh` 腳本到映像中，並將其設為 `ENTRYPOINT`。
+
+### 4. `Dockerfile` (修改)
+
+*   **CRLF & BOM 修正：** 加入 `sed` 指令來自動修正 Windows 的換行符號 (`\r`) 和 UTF-8 BOM，解決 `exec format error`。
+*   **`CMD` 修正：** 將 `CMD` 從 `["./run.sh"]` 修改為 `["/bin/sh", "./run.sh"]`，以正確執行沒有 shebang (`#!/bin/sh`) 的腳本。
+
+### 5. `rageval/evaluation/main.py` (修改)
+
+*   **目的：** 替換掉極度消耗資源的預設「裁判模型」。
+*   **修改：**
+    *   **舊：** `process_jsonl(..., "llama3.3:70b", "v1")`
+    *   **新：** `process_jsonl(..., "gemma:2b", "v1")`
+*   **原因：** `llama3.3:70b` 需要 40GB+ VRAM，而 `gemma:2b` 僅需 ~3GB VRAM，非常適合在 6GB VRAM 的硬體上進行輕量級評估。
+
+### 6. `rageval/evaluation/metrics/rag_metrics/keypoint_metrics.py` (修改)
+
+*   **目的：** 修正 Docker 內部的網路連線問題。
+*   **修改：**
+    *   **舊：** `base_url="http://localhost:11434/v1"`
+    *   **新：** `base_url="http://ollama:11434/v1"`
+*   **原因：** 在 `docker-compose` 網路中，`app` 服務必須使用 `ollama` 服務的「服務名稱」(`ollama`) 來連接，而不是 `localhost`。
+
+## 🧹 如何停止與清理
+
+1.  **停止服務：** 在 `docker-compose up` 正在運行的終端機中，按下 `Ctrl + C`。
+2.  **停止並移除 Container：** (如果服務是在背景 `-d` 執行，或你想徹底清理)
+    ```bash
+    docker-compose down
+    ```
+3.  **移除 Ollama 模型快取 (非必要)：** 如果你想刪除下載的 `gemma:2b` 模型，執行：
+    ```bash
+    docker-compose down -v
+    ```
+    (`-v` 會連同 `ollama_storage` volume 一起刪除)
