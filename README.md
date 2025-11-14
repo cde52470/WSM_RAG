@@ -36,11 +36,20 @@ docker-compose up --build
 
 ### 未來執行
 
-如果你沒有修改任何程式碼，只想重新跑一次評估，你只需要執行：
+1. **重新跑一次評估 (無修改程式碼):**
+   ```bash
+   docker-compose up
+   ```
 
-```bash
-docker-compose up
-```
+2. **重新建置並執行 (有修改程式碼):**
+   ```bash
+   docker-compose up --build --force-recreate
+   ```
+
+3. **跑完自動關閉並清除所有服務:**
+   ```bash
+   docker-compose up --build --force-recreate --abort-on-container-exit
+   ```
 
 ## 📜 專案配置修改總結
 
@@ -70,10 +79,17 @@ docker-compose up
     *   移除在 build 階段執行 `RUN ollama pull ...` 的指令。
     *   改為複製 `entrypoint.sh` 腳本到映像中，並將其設為 `ENTRYPOINT`。
 
-### 4. `Dockerfile` (修改)
+### 4. Dockerfile (修改)
 
-*   **CRLF & BOM 修正：** 加入 `sed` 指令來自動修正 Windows 的換行符號 (`
-`) 和 UTF-8 BOM，解決 `exec format error`。
+*   **CRLF & BOM 修正：** 加入 `sed` 指令來自動修正 Windows 的換行符號 (`\r`) 和 UTF-8 BOM，解決 `exec format error`。具體來說，針對 `run.sh` 和 `wait_and_run.sh` 腳本，新增以下 `sed` 指令：
+    ```dockerfile
+    # --- [修正: 移除 Windows 換行符號 (CRLF) 和 BOM] ---
+    RUN sed -i 's/\r$//' run.sh
+    RUN sed -i '1s/^\xEF\xBB\xBF//' run.sh
+    # [新增] 修正 wait_and_run.sh 的換行符號
+    RUN sed -i 's/\r$//' wait_and_run.sh
+    RUN sed -i '1s/^\xEF\xBB\xBF//' wait_and_run.sh
+    ```
 *   **`CMD` 修正：** 將 `CMD` 從 `["./run.sh"]` 修改為 `["/bin/sh", "./run.sh"]`，以正確執行沒有 shebang (`#!/bin/sh`) 的腳本。
 
 ### 5. `rageval/evaluation/main.py` (修改)
@@ -129,32 +145,21 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 
 **執行 `docker-compose up --build --force-recreate` 重新建置並啟動服務以應用這些修復。**
 
+## lixiang_1114當前任務
+紀錄每次結果並加上時間戳記
+
 ## 結果在這裡
-根據我們的設定，你的 run.sh 腳本會產生兩種類型的檔案，它們會被分別儲存到你本機 (Windows) 的兩個資料夾：
+執行 `run.sh` 腳本後，結果將會儲存在專案根目錄下的 `result` 和 `predictions` 資料夾中。這兩個資料夾都會包含以時間戳記命名的子資料夾，例如 `result/20251114_074809/` 和 `predictions/20251114_074809/`。
 
-1. 最終的「評估分數」檔案：
+1.  **`result` 資料夾：**
+    *   包含最終的「評估分數」檔案。
+    *   例如：`result/YYYYMMDD_HHMMSS/score_en.jsonl` 和 `result/YYYYMMDD_HHMMSS/score_zh.jsonl`。
+    *   這些檔案包含了 RAG 評估的最終分數。
 
-資料夾： C:\Users\user\Desktop\WSM_final\result\
-
-檔案：
-
-score_en.jsonl
-
-score_zh.jsonl
-
-(你剛剛貼給我看的 JSON 內容，就是來自這兩個檔案！)
-
-2. 中間的「RAG 預測」檔案：
-
-資料夾： C:\Users\user\Desktop\WSM_final\predictions\
-
-檔案：
-
-predictions_en.jsonl
-
-predictions_zh.jsonl
-
-(這些是 rageval 讀取並用來計算分數的原始答案)
+2.  **`predictions` 資料夾：**
+    *   包含中間的「RAG 預測」檔案。
+    *   例如：`predictions/YYYYMMDD_HHMMSS/predictions_en.jsonl` 和 `predictions/YYYYMMDD_HHMMSS/predictions_zh.jsonl`。
+    *   這些是 `rageval` 讀取並用來計算分數的原始答案。
 
 ## 🧹 如何停止與清理
 

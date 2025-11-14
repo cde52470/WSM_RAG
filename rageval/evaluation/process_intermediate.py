@@ -1,6 +1,8 @@
 import json
 import os
+import argparse
 from typing import Dict, List, Any
+from pathlib import Path
 
 def load_jsonl(file_path: str) -> List[Dict[str, Any]]:
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -33,8 +35,19 @@ def process_folder(folder_path: str, output_file: str, metric_list: List[str]):
         json.dump(results, f, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":
-    folder_path = './result'
-    output_file = './result/final_result.json'
+    parser = argparse.ArgumentParser(description="Process intermediate evaluation results.")
+    parser.add_argument("--input_dir", type=str, default='./result', help="Directory containing intermediate JSONL files.")
+    parser.add_argument("--output_dir", type=str, default='./result', help="Directory to save the final aggregated results.")
+    
+    args = parser.parse_args()
+
+    folder_path = args.input_dir
+    output_file_name = 'final_result.json'
+    output_file = Path(args.output_dir) / output_file_name
+    
+    # Ensure output directory exists
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+
     metric_list = ['EIR', 'Precision', 'Recall', 'ROUGELScore', "completeness", "hallucination", "irrelevance"]
     
     process_folder(folder_path, output_file, metric_list)
