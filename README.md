@@ -41,6 +41,10 @@ docker-compose up --build
 ```bash
 docker-compose up
 ```
+如果有修改程式碼，執行:
+```bash
+docker-compose up --build --force-recreate
+```
 
 ## 📜 專案配置修改總結
 
