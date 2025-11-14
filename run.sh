@@ -1,6 +1,18 @@
 #!/bin/bash
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+# Try to get network time
+RAW_NETWORK_TIME=$(curl -s http://worldtimeapi.org/api/timezone/Etc/UTC | jq -r '.utc_datetime')
+NETWORK_TIMESTAMP=$(echo "${RAW_NETWORK_TIME}" | sed -e 's/[-T:]//g' -e 's/\..*//' | sed 's/\(........\)/\1_/')
+
+# Fallback to system time if network time fails
+if [ -z "$NETWORK_TIMESTAMP" ]; then
+    echo "Warning: Failed to fetch network time. Falling back to system time."
+    TIMESTAMP_BASE=$(date +"%Y%m%d_%H%M%S")
+    TIMESTAMP="${TIMESTAMP_BASE}_localTime"
+else
+    TIMESTAMP="${NETWORK_TIMESTAMP}"
+fi
+
 PREDICTIONS_DIR="./predictions/${TIMESTAMP}"
 RESULTS_DIR="./result/${TIMESTAMP}"
 
