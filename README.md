@@ -145,3 +145,40 @@ predictions_en.jsonl
 predictions_zh.jsonl
 
 (這些是 rageval 讀取並用來計算分數的原始答案)
+
+## 疑難排解 (Troubleshooting)
+
+### 1. `ollama-1 | exec /entrypoint.sh: no such file or directory`
+
+**問題描述：**
+當 `ollama_service` 容器啟動時，可能會遇到 `exec /entrypoint.sh: no such file or directory` 錯誤，導致 Ollama 服務無法啟動。這通常發生在 `entrypoint.sh` 腳本是在 Windows 環境下建立或編輯，導致其包含 Windows 風格的換行符號 (CRLF)，而 Docker 容器內部的 Linux 環境無法正確解析。
+
+**解決方案：**
+在 `ollama_service/Dockerfile` 中，於 `COPY entrypoint.sh /entrypoint.sh` 之後，加入一行 `RUN sed -i 's/\r$//' /entrypoint.sh`。這會將腳本中的所有 CRLF 換行符號轉換為 Linux 兼容的 LF 換行符號。
+
+**修改範例 (ollama_service/Dockerfile):**
+```dockerfile
+# ... (其他指令)
+COPY entrypoint.sh /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh # 新增此行
+RUN chmod +x /entrypoint.sh
+# ... (其他指令)
+```
+
+### 2. `app-1 | ./wait_and_run.sh: 7: curl: not found`
+
+**問題描述：**
+`app` 容器在執行 `wait_and_run.sh` 腳本時，可能會報告 `curl: not found` 錯誤。這是因為 `app` 服務的基礎映像 `python:3.9-slim` 是一個輕量級映像，預設沒有安裝 `curl` 工具，而 `wait_and_run.sh` 腳本需要 `curl` 來檢查 Ollama 服務的健康狀態。
+
+**解決方案：**
+在主 `Dockerfile` 中，於 `WORKDIR /app` 之後，加入一行 `RUN apt-get update && apt-get install -y curl`。這會在建置 `app` 容器時安裝 `curl`。
+
+**修改範例 (Dockerfile):**
+```dockerfile
+# ... (其他指令)
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl # 新增此行
+# ... (其他指令)
+```
+
+**執行 `docker-compose up --build --force-recreate` 重新建置並啟動服務以應用這些修復。**

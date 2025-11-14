@@ -4,6 +4,9 @@ FROM python:3.9-slim
 # 在容器中設定工作目錄
 WORKDIR /app
 
+# [新增] 安裝 curl 工具
+RUN apt-get update && apt-get install -y curl
+
 # 複製 requirements.txt 並安裝相依套件
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
