@@ -65,8 +65,15 @@ def main():
     parser.add_argument("--output_file", help="Path to the output JSONL file")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of worker processes")
     parser.add_argument("--language", type=str, help="Language for the metric")
+    parser.add_argument("--output_dir", type=str, default=None, help="Optional directory to save output files")
 
     args = parser.parse_args()
+    
+    if args.output_dir:
+        output_path = Path(args.output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        args.output_file = str(output_path / Path(args.output_file).name)
+
     evaluator_names = ["rouge-l", "precision", "recall", "eir", "keypoint_metrics"]
     process_jsonl(args.input_file, args.output_file, evaluator_names, args.num_workers, True, args.language, "gemma:2b", "v1")#裁判模型
 
