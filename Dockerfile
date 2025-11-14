@@ -21,13 +21,12 @@ RUN sed -i 's/\r$//' run.sh
 
 # 2. 移除 UTF-8 BOM (Byte Order Mark) (如果存在)
 RUN sed -i '1s/^\xEF\xBB\xBF//' run.sh
-
 # --------------------------------------------------------
 
-# 賦予 run.sh 執行權限
+# [修正] 賦予兩個腳本執行權限
+# 這必須在 COPY 檔案之後才能執行
 RUN chmod +x run.sh
+RUN chmod +x wait_and_run.sh
 
-# --- [終極修正] 設定容器啟動時要執行的預設指令 ---
-# 不要直接執行 ./run.sh (會導致 exec format error)
-# 而是啟動 sh，再把 ./run.sh 當作「參數」餵給 sh
-CMD ["/bin/sh", "./run.sh"]
+# 設定容器啟動時要執行的預設指令，先執行延遲腳本
+CMD ["/bin/sh", "./wait_and_run.sh"]

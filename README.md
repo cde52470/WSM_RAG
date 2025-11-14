@@ -72,7 +72,8 @@ docker-compose up
 
 ### 4. `Dockerfile` (修改)
 
-*   **CRLF & BOM 修正：** 加入 `sed` 指令來自動修正 Windows 的換行符號 (``) 和 UTF-8 BOM，解決 `exec format error`。
+*   **CRLF & BOM 修正：** 加入 `sed` 指令來自動修正 Windows 的換行符號 (`
+`) 和 UTF-8 BOM，解決 `exec format error`。
 *   **`CMD` 修正：** 將 `CMD` 從 `["./run.sh"]` 修改為 `["/bin/sh", "./run.sh"]`，以正確執行沒有 shebang (`#!/bin/sh`) 的腳本。
 
 ### 5. `rageval/evaluation/main.py` (修改)
@@ -117,3 +118,30 @@ docker-compose up
     docker-compose down -v
     ```
     (`-v` 會連同 `ollama_storage` volume 一起刪除)
+
+## 結果在這裡
+根據我們的設定，你的 run.sh 腳本會產生兩種類型的檔案，它們會被分別儲存到你本機 (Windows) 的兩個資料夾：
+
+1. 最終的「評估分數」檔案：
+
+資料夾： C:\Users\user\Desktop\WSM_final\result\
+
+檔案：
+
+score_en.jsonl
+
+score_zh.jsonl
+
+(你剛剛貼給我看的 JSON 內容，就是來自這兩個檔案！)
+
+2. 中間的「RAG 預測」檔案：
+
+資料夾： C:\Users\user\Desktop\WSM_final\predictions\
+
+檔案：
+
+predictions_en.jsonl
+
+predictions_zh.jsonl
+
+(這些是 rageval 讀取並用來計算分數的原始答案)

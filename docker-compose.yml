@@ -1,4 +1,3 @@
-
 services:
   # 服務 1: Ollama 裁判模型
   ollama:
@@ -22,13 +21,18 @@ services:
 
   # 服務 2: 你的 RAG 應用程式
   app:
-    # (app 服務的內容保持不變)
     build: .
     depends_on:
       - ollama
     volumes:
       - ./predictions:/app/predictions
       - ./result:/app/result
+    # --- [新增這裡] ---
+    environment:
+      # 將全域 API 超時設定為 120 秒 (2 分鐘)
+      # 這會覆蓋 Python 客戶端預設的短時間超時
+      OPENAI_TIMEOUT: 120 
+    # --------------------
     deploy:
       resources:
         reservations:
