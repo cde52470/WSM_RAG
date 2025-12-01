@@ -203,6 +203,31 @@ RUN apt-get update && apt-get install -y curl # 新增此行
     ```
     (`-v` 會連同 `ollama_storage` volume 一起刪除)
 
+## 🚀 優化 (Optimization)
+
+### lixiang1201_2323_optimize-rag-performance
+
+**目標：** 優化 Ollama 客戶端 (Client) 的實例化，以提高 RAG 管道的整體執行效能。
+
+**改動內容：**
+
+1.  **`My_RAG/main.py` (修改):**
+    *   將 `ollama.Client` 的實例化邏輯和主機備援 (fallback) 邏輯從 `My_RAG/generator.py` 移至 `main.py`。
+    *   此邏輯現在位於查詢處理迴圈之前，確保 `ollama.Client` 物件只會被建立一次。
+    *   在 `main.py` 中，新增了 `ollama.Client` 和 `os` 的 import。
+    *   `generate_answer` 函式的呼叫現在會傳遞這個已經實例化好的 `ollama_client` 物件。
+    *   新增了連線失敗時的錯誤處理，如果所有主機都無法連線，會拋出 `ConnectionError`。
+
+2.  **`My_RAG/generator.py` (修改):**
+    *   移除了 `from ollama import Client` 的 import (因為 client 會從 `main.py` 傳入)。
+    *   修改了 `generate_answer` 函式的簽名 (signature)，使其接受一個 `ollama_client` 物件作為參數。
+    *   移除了函式內部重複建立 `ollama.Client` 物件和主機備援的邏輯。
+    *   直接使用傳入的 `ollama_client` 物件來進行 `generate` 操作。
+
+**優化效益：**
+*   避免了在每個查詢中重複實例化 `ollama.Client` 物件和執行連線檢查，大幅減少了不必要的開銷。
+*   提高了 RAG 管道在處理大量查詢時的執行效率。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 主要目標：修正 RAG 檢索流程

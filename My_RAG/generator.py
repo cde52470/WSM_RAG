@@ -1,7 +1,7 @@
-from ollama import Client
-import os
+# from ollama import Client # Removed as client is passed
+import os # Keep os for getenv
 
-def generate_answer(query, context_chunks):
+def generate_answer(query, context_chunks, ollama_client): # Added ollama_client argument
     context = "\n\n".join([chunk['page_content'] for chunk in context_chunks])
     prompt = f"""You are a helpful assistant for question-answering tasks.
 Use the following pieces of retrieved context to answer the question.
@@ -17,29 +17,12 @@ Keep the answer concise and strictly based on the provided context.
 </question>
 
 Answer:"""
-    hosts_to_try = [
-        "http://ollama-gateway:11434",  # Submission host
-        "http://ollama:11434",          # Local Docker host
-        "http://localhost:11434"        # Local Conda host
-    ]
-    model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
-    last_error = None
-
-    for host in hosts_to_try:
-        try:
-            client = Client(host=host)
-            # Use a lightweight call to check for connectivity before generating
-            client.list()
-            # If connectivity is confirmed, proceed with generation
-            response = client.generate(model=model_name, prompt=prompt, stream=False)
-            return response.get("response", "No response from model.")
-        except Exception as e:
-            # print(f"Info: Failed to connect to {host}. Trying next host. Error: {e}")
-            last_error = e
-            continue  # Try the next host in the list
-
-    # If all hosts fail, return the last error
-    return f"Error: Could not connect to any Ollama host. Last error: {last_error}"
+    try:
+        model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
+        response = ollama_client.generate(model=model_name, prompt=prompt, stream=False) # Use passed client
+        return response.get("response", "No response from model.")
+    except Exception as e:
+        return f"Error using Ollama Python client: {e}"
 
 
 if __name__ == "__main__":
