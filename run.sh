@@ -3,7 +3,7 @@
 set -e
 
 # Set the OLLAMA_HOST environment variable for local execution
-export OLLAMA_HOST="http://localhost:11434"
+export OLLAMA_HOST=${OLLAMA_HOST:-"http://localhost:11434"}
 
 log() {
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
