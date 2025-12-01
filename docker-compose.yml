@@ -29,6 +29,7 @@ services:
       - ./results:/app/results
     # --- [新增這裡] ---
     environment:
+      - OLLAMA_HOST=http://ollama:11434
       - GENERATOR_MODEL=granite4:3b
       - JUDGE_MODEL=gemma:2b
       # 將全域 API 超時設定為 120 秒 (2 分鐘)

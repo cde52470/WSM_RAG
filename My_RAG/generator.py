@@ -17,14 +17,29 @@ Keep the answer concise and strictly based on the provided context.
 </question>
 
 Answer:"""
-    try:
-        model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
-        ollama_host = os.getenv("OLLAMA_HOST", "http://ollama:11434")
-        client = Client(host=ollama_host)
-        response = client.generate(model=model_name, prompt=prompt, stream=False)
-        return response.get("response", "No response from model.")
-    except Exception as e:
-        return f"Error using Ollama Python client: {e}"
+    hosts_to_try = [
+        "http://ollama-gateway:11434",  # Submission host
+        "http://ollama:11434",          # Local Docker host
+        "http://localhost:11434"        # Local Conda host
+    ]
+    model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
+    last_error = None
+
+    for host in hosts_to_try:
+        try:
+            client = Client(host=host)
+            # Use a lightweight call to check for connectivity before generating
+            client.list()
+            # If connectivity is confirmed, proceed with generation
+            response = client.generate(model=model_name, prompt=prompt, stream=False)
+            return response.get("response", "No response from model.")
+        except Exception as e:
+            # print(f"Info: Failed to connect to {host}. Trying next host. Error: {e}")
+            last_error = e
+            continue  # Try the next host in the list
+
+    # If all hosts fail, return the last error
+    return f"Error: Could not connect to any Ollama host. Last error: {last_error}"
 
 
 if __name__ == "__main__":
