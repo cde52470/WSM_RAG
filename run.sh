@@ -1,28 +1,44 @@
 #!/bin/bash
 
-# Try to get network time
-RAW_NETWORK_TIME=$(curl -s http://worldtimeapi.org/api/timezone/Etc/UTC | jq -r '.utc_datetime')
-NETWORK_TIMESTAMP=$(echo "${RAW_NETWORK_TIME}" | sed -e 's/[-T:]//g' -e 's/\..*//' | sed 's/\(........\)/\1_/')
+set -e
 
-# Fallback to system time if network time fails
-if [ -z "$NETWORK_TIMESTAMP" ]; then
-    echo "Warning: Failed to fetch network time. Falling back to system time."
-    TIMESTAMP_BASE=$(date +"%Y%m%d_%H%M%S")
-    TIMESTAMP="${TIMESTAMP_BASE}_localTime"
-else
-    TIMESTAMP="${NETWORK_TIMESTAMP}"
-fi
+# Set the OLLAMA_HOST environment variable for local execution
+export OLLAMA_HOST="http://localhost:11434"
 
-PREDICTIONS_DIR="./predictions/${TIMESTAMP}"
-RESULTS_DIR="./results/${TIMESTAMP}"
+log() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="$timestamp - $1"
+    local len=${#message}
+    local border=$(printf '=%.0s' $(seq 1 $len))
+    
+    echo "$border"
+    echo "$message"
+    echo "$border"
+}
 
-mkdir -p "${PREDICTIONS_DIR}"
-mkdir -p "${RESULTS_DIR}"
+# Ensure the base predictions directory exists
+mkdir -p ./predictions
 
-python3 My_RAG/main.py --query_path ./dragonball_dataset/queries_show/queries_zh.jsonl --docs_path ./dragonball_dataset/dragonball_docs.jsonl --language zh --output "${PREDICTIONS_DIR}/predictions_zh.jsonl"
-python3 My_RAG/main.py --query_path ./dragonball_dataset/queries_show/queries_en.jsonl --docs_path ./dragonball_dataset/dragonball_docs.jsonl --language en --output "${PREDICTIONS_DIR}/predictions_en.jsonl"
+run_results() {
+    local language=$1
 
-# python3 rageval/evaluation/main.py --input_file "${PREDICTIONS_DIR}/predictions_zh.jsonl" --output_file "score_zh.jsonl" --language zh --output_dir "${RESULTS_DIR}"
-# python3 rageval/evaluation/main.py --input_file "${PREDICTIONS_DIR}/predictions_en.jsonl" --output_file "score_en.jsonl" --language en --output_dir "${RESULTS_DIR}"
+    log "[INFO] Running inference for language: ${language}"
+    python3 ./My_RAG/main.py \
+        --query_path ./dragonball_dataset/queries_show/queries_${language}.jsonl \
+        --docs_path ./dragonball_dataset/dragonball_docs.jsonl \
+        --language ${language} \
+        --output ./predictions/predictions_${language}.jsonl
 
-# python3 rageval/evaluation/process_intermediate.py --input_dir "${RESULTS_DIR}" --output_dir "${RESULTS_DIR}"
+    log "[INFO] Checking output format for language: ${language}"
+    python3 ./check_output_format.py \
+        --query_file ./dragonball_dataset/queries_show/queries_${language}.jsonl \
+        --processed_file ./predictions/predictions_${language}.jsonl
+
+    if [ $? -eq 0 ]; then
+        echo "Format check passed for ${language}."
+    fi
+}
+
+run_results "en"
+run_results "zh"
+log "[INFO] All inference tasks completed."
