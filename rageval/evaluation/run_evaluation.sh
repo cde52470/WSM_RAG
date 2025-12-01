@@ -5,7 +5,7 @@ NUM_WORKERS=5 # the number of workers to use for parallel processing for evaluat
 LANGUAGE="auto" # the language of the input data, en or zh
 INPUT_BASE_URL="./data/"
 USE_MODEL="gpt-4o"
-OUTPUT_BASE_URL="./result/intermediate_result/"
+OUTPUT_BASE_URL="./results/intermediate_results/"
 export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 export BASE_URL="" # if none, set to empty string
 # Input files and output file list 
@@ -79,4 +79,4 @@ echo "All files and metrics processed."
 
 python process_intermediate.py
 
-echo "Intermediate results processed. Results are stored in ./result/final_result.jsonl"
+echo "Intermediate results processed. Results are stored in ./results/final_results.jsonl"

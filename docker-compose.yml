@@ -26,12 +26,14 @@ services:
       - ollama
     volumes:
       - ./predictions:/app/predictions
-      - ./result:/app/result
+      - ./results:/app/results
     # --- [新增這裡] ---
     environment:
+      - GENERATOR_MODEL="granite4:3b"
+      - JUDGE_MODEL="gemma:2b"
       # 將全域 API 超時設定為 120 秒 (2 分鐘)
       # 這會覆蓋 Python 客戶端預設的短時間超時
-      OPENAI_TIMEOUT: 120 
+      - OPENAI_TIMEOUT=120 
     # --------------------
     deploy:
       resources:

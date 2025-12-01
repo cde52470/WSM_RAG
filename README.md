@@ -108,6 +108,22 @@ docker-compose up --build
     *   **新：** `base_url="http://ollama:11434/v1"`
 *   **原因：** 在 `docker-compose` 網路中，`app` 服務必須使用 `ollama` 服務的「服務名稱」(`ollama`) 來連接，而不是 `localhost`。
 
+### 7. 1201 - 符合提交格式要求 (1201 - Align with Submission Format)
+
+#### a. 調整資料集以符合格式要求
+
+*   **目的：** 使用新的 `queries_show` 資料集進行預測。此資料集不包含 `ground_truth`，專門用於生成展示用的答案。
+*   **修改 `run.sh`：**
+    *   將 RAG 系統 (`My_RAG/main.py`) 的 `--query_path` 參數，從舊的 `test_queries_*.jsonl` 檔案，改為指向新的 `dragonball_dataset/queries_show/queries_*.jsonl`。
+    *   由於新資料集沒有 `ground_truth` 會導致評估階段出錯，因此將執行 `rageval` 評估腳本的指令註解掉。
+
+#### b. 修正 Docker 內部 Ollama 連線問題
+
+*   **目的：** 解決在 Docker 環境中，`app` 服務無法連線到 `ollama` 服務的問題。
+*   **修改 `My_RAG/generator.py`：**
+    *   **舊：** `client = Client()`，此初始化方式會預設連線到 `localhost`，在容器內部會找不到目標服務。
+    *   **新：** `client = Client(host='http://ollama:11434')`，明確指定連線到 `docker-compose.yml` 中定義的 `ollama` 服務名稱。
+
 ## 疑難排解 (Troubleshooting)
 
 ### 1. `ollama-1 | exec /entrypoint.sh: no such file or directory`
@@ -149,17 +165,30 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 紀錄每次結果並加上時間戳記
 
 ## 結果在這裡
-執行 `run.sh` 腳本後，結果將會儲存在專案根目錄下的 `result` 和 `predictions` 資料夾中。這兩個資料夾都會包含以時間戳記命名的子資料夾，例如 `result/20251114_074809/` 和 `predictions/20251114_074809/`。
+執行 `run.sh` 腳本後，結果將會儲存在專案根目錄下的 `results` 和 `predictions` 資料夾中。這兩個資料夾都會包含以時間戳記命名的子資料夾，例如 `results/20251114_074809/` 和 `predictions/20251114_074809/`。
 
 1.  **`result` 資料夾：**
     *   包含最終的「評估分數」檔案。
-    *   例如：`result/YYYYMMDD_HHMMSS/score_en.jsonl` 和 `result/YYYYMMDD_HHMMSS/score_zh.jsonl`。
+    *   例如：`results/YYYYMMDD_HHMMSS/score_en.jsonl` 和 `results/YYYYMMDD_HHMMSS/score_zh.jsonl`。
     *   這些檔案包含了 RAG 評估的最終分數。
 
 2.  **`predictions` 資料夾：**
     *   包含中間的「RAG 預測」檔案。
     *   例如：`predictions/YYYYMMDD_HHMMSS/predictions_en.jsonl` 和 `predictions/YYYYMMDD_HHMMSS/predictions_zh.jsonl`。
     *   這些是 `rageval` 讀取並用來計算分數的原始答案。
+
+## 新查詢資料集格式說明 (New Query Dataset Format Description)
+
+在 `dragonball_dataset/queries_show` 中的查詢檔案 (例如 `queries_en.jsonl`) 具有以下特點：
+
+*   **`prediction.content`**：
+    *   此欄位預期在程式執行過程中由 RAG 系統填入對應查詢的答案。
+    *   在執行前，此欄位通常會是空的字串。
+    *   類型：`str`
+*   **`prediction.references`**：
+    *   此欄位預期在程式執行過程中由 RAG 系統填入與查詢相關的文件片段（來自 `dragonball_docs.jsonl`）。
+    *   在執行前，此欄位通常會是空的列表。
+    *   類型：`list[str]`
 
 ## 🧹 如何停止與清理
 
