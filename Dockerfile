@@ -1,5 +1,5 @@
 # 使用官方 Python 3.10 映像
-FROM python:3.10-slim
+FROM python:3.10
 
 # 在容器中設定工作目錄
 WORKDIR /app

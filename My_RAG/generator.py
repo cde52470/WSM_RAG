@@ -19,7 +19,8 @@ Keep the answer concise and strictly based on the provided context.
 Answer:"""
     try:
         model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
-        client = Client(host='http://ollama:11434')
+        ollama_host = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+        client = Client(host=ollama_host)
         response = client.generate(model=model_name, prompt=prompt, stream=False)
         return response.get("response", "No response from model.")
     except Exception as e:
