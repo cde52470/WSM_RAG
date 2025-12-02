@@ -230,28 +230,32 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 
 ## 🚀 未來工作 (Future Work)
 
-### 主要目標：提升檢索品質以提高最終分數 (Primary Goal: Improve Retrieval Quality to Increase Final Score)
+當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是目前的 `BM25` 關鍵字檢索無法根據語意找到最相關的文件。為此，我們規劃了以下優化路徑：
 
-當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是檢索階段 (`BM25`) 無法根據語意找到最相關的文件。以下是兩種可行的優化方案：
+#### 1. Retrieval (檢索優化)
+- **Hybrid Search (混合搜索):**
+    - **方案一 (平衡效率與分數):** 結合 `BM25` 的速度和向量檢索的準確度。先用 `BM25` 快速篩選出一個較大的候選集 (例如 20-30 個文件)，再針對此候選集進行向量語意分析和重新排序。
+    - **方案二 (分數優先):** 全面改用向量語意檢索 (`Vector Semantic Retrieval`)。引入 `langchain` 套件，使用 `OllamaEmbeddings` (如 `nomic-embed-text`) 和 `FAISS` 向量資料庫來建立文件索引，實現純語意搜索。
+- **Query Rewriting (查詢改寫):**
+  - **優先實作:**
+    - **Multi-Query:** 將一個複雜的用戶查詢分解成多個子查詢。
+    - **HyDE (Hypothetical Document Embeddings):** 生成假設性答案以提升檢索相似度。
+  - **進階方向:**
+    - **Decomposition:** 將問題拆解成更小的子問題。
+    - **Step-Back Prompting:** 從具體問題回退到抽象概念進行檢索。
 
-#### 方案一 (分數優先): 全面改用向量語意檢索 (Vector Semantic Retrieval)
-*   **說明：** 將目前的 `BM25` 關鍵字檢索，替換為基於 Embedding 模型的向量檢索。這是提升分數最有效的方法。
-*   **步驟：**
-    1.  在 `retriever.py` 中，引入 `langchain` 相關套件。
-    2.  使用 `OllamaEmbeddings` 來指定一個 Embedding 模型 (例如 `nomic-embed-text`)。
-    3.  使用 `FAISS` (或類似的向量資料庫) 將所有文件區塊 (chunks) 轉換為向量並建立索引。
-    4.  在檢索時，將查詢也轉換為向量，並在 `FAISS` 索引中進行高效的相似度搜索。
-*   **優點：** 能真正理解查詢和文件的語意，大幅提升檢索的準確度 (Recall/Precision)。
-*   **缺點：** 建立索引和進行搜索的速度會比 `BM25` 慢，但應可在 30 分鐘的限制內完成。
-*   **相依套件：** `langchain`, `langchain-community`, `faiss-cpu` (或 `faiss-gpu`)。
+#### 2. Chunking (文件切分策略)
+- **Chunk Size & Overlap:** 系統性地測試不同的 `chunk_size` 和 `chunk_overlap`，找到最佳組合。
+- **Advanced Splitters:** 研究並引入如 `RecursiveCharacterTextSplitter` 等更先進的切分方法，避免切斷重要語意。
 
-#### 方案二 (平衡效率與分數): 採用混合檢索 (Hybrid Retrieval)
-*   **說明：** 結合 `BM25` 的速度和向量檢索的準確度，作為一個折衷方案。
-*   **步驟：**
-    1.  先用 `BM25` 從全部文件中快速篩選出一個較大的候選集 (例如 20-30 個文件)。
-    2.  接著，只針對這個小候選集，使用向量模型進行語意分析和重新排序，找出最終最相關的前幾名文件。
-*   **優點：** 在提升分數的同時，能保持比方案一更快的執行效率。
+#### 3. Augmented Generation (生成優化)
+- **Prompt Engineering (提示工程):**
+  - **Prompt Template:** 設計更精細的提示詞模板，指導模型如何利用上下文。
+  - **Answer Format:** 規範模型輸出格式以利評估。
+- **Context Handling (上下文處理):**
+  - 開發更有效的策略來抽取、過濾並結合檢索到的內容。
+- **Model Strategy:**
+  - **暫緩更換生成模型:** 在檢索品質問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
 
-### 其他代辦事項 (Other To-Do)
-- [ ] **分析 Chunking 策略：** 檢查目前固定大小的切分方式是否合理，有沒有切斷重要語意。可研究 `RecursiveCharacterTextSplitter` 等更先進的切分方法。
-- [ ] **暫緩更換生成模型：** 在檢索品質問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
+#### 4. Advanced RAG (進階策略)
+- **Context Window Optimization (上下文視窗優化):** 針對模型的上下文長度限制進行優化，確保傳遞最核心的資訊。
