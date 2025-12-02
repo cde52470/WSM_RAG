@@ -9,7 +9,7 @@ def load_jsonl(file_path):
     return docs
 
 def save_jsonl(file_path, data):
-    Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(file_path).parent.mkdir(parents=True, exist_ok=True, mode=0o777)
     with jsonlines.open(file_path, mode='w') as writer:
         for item in data:
             writer.write(item)

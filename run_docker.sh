@@ -21,12 +21,12 @@ run_results() {
         --query_path ./dragonball_dataset/queries_show/queries_${language}.jsonl \
         --docs_path ./dragonball_dataset/dragonball_docs.jsonl \
         --language ${language} \
-        --output ./predictions/predictions_${language}.jsonl
+        --output /app/predictions/predictions_${language}.jsonl
 
     log "[INFO] Checking output format for language: ${language}"
     python ./check_output_format.py \
         --query_file ./dragonball_dataset/queries_show/queries_${language}.jsonl \
-        --processed_file ./predictions/predictions_${language}.jsonl
+        --processed_file /app/predictions/predictions_${language}.jsonl
 
     if [ $? -eq 0 ]; then
         echo Format check passed.
