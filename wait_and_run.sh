@@ -1,13 +1,10 @@
 #!/bin/sh
 
-# [新增] 檢查服務是否在運行 (延續之前的 curl 檢查邏輯)
+# 1. 等待 Ollama 伺服器本身啟動
 echo "等待 Ollama 伺服器啟動..."
 attempts=0
-max_attempts=30
-# --- [修正語法] ---
-# 移除 $()，直接執行 curl，讓其返回碼控制 until 迴圈
+max_attempts=30 # 等待最多 60 秒
 until curl --output /dev/null --silent --fail http://ollama:11434/api/tags; do
-# --------------------
     if [ $attempts -ge $max_attempts ]; then
         echo "錯誤: Ollama 伺服器未啟動。"
         exit 1
@@ -18,19 +15,35 @@ until curl --output /dev/null --silent --fail http://ollama:11434/api/tags; do
 done
 echo "\nOllama 伺服器已準備就緒。"
 
-# --- [新增這裡] ---
-# 強制載入模型到 GPU VRAM (觸發一次簡單的生成請求)
-echo "強制載入 gemma:2b 模型到 VRAM (可能耗時 10-30 秒)..."
-# 確保這個 curl 指令能夠成功發出
-curl -s -X POST http://ollama:11434/api/generate -d '{
-  "model": "gemma:2b",
-  "prompt": "ping",
-  "stream": false
-}' > /dev/null 2>&1 & # 丟到背景執行
+# 2. 定義需要檢查的模型列表 (從環境變數讀取)
+MODELS_TO_CHECK="$GENERATOR_MODEL $JUDGE_MODEL"
 
-# 等待模型載入完成 (給予足夠時間)
-sleep 40 
-# --------------------
+# 3. 遍歷定義的每個必要模型，並等待它們下載完成
+echo "正在檢查必要的模型: $MODELS_TO_CHECK"
 
-echo "開始執行 RAG 預測和評估..."
+for model_name in $MODELS_TO_CHECK; do
+    # 如果模型名稱為空，則跳過
+    if [ -z "$model_name" ]; then
+        continue
+    fi
+    
+    echo "正在等待模型 '$model_name' 下載完成..."
+    model_attempts=0
+    max_model_attempts=300 # 為每個模型提供最多 10 分鐘的下載時間
+
+    # 使用 jq 的 -e 選項，如果找到匹配項，它會返回 0 (成功)
+    until curl -s http://ollama:11434/api/tags | jq -e ".models[] | select(.name == \"$model_name\")" > /dev/null 2>&1; do
+        if [ $model_attempts -ge $max_model_attempts ]; then
+            echo "錯誤: 等待模型 '$model_name' 超時。"
+            exit 1
+        fi
+        printf '.'
+        model_attempts=$((model_attempts+1))
+        sleep 2
+    done
+    echo "\n模型 '$model_name' 已準備就緒。"
+done
+
+# 4. 所有模型都準備好後，才執行主程式
+echo "\n所有必要模型均已準備就緒，開始執行主程式..."
 exec ./run.sh

@@ -3,6 +3,7 @@ from utils import load_jsonl, save_jsonl
 from chunker import chunk_documents
 from retriever import create_retriever
 from generator import generate_answer
+from ollama import Client
 import argparse
 import re
 import jieba
@@ -103,8 +104,32 @@ def main(query_path, docs_path, language, output_path):
     print(f"Created {len(chunks)} chunks.")
 
     # 3. Create Retriever
+    # 3. Create Retriever
     print("Creating retriever...")
-    retriever = create_retriever(chunks, language)
+
+    # --- Ollama Client Instantiation ---
+    hosts_to_try = [
+        "http://ollama-gateway:11434",  # Submission host
+        "http://ollama:11434",          # Local Docker host
+        "http://localhost:11434"        # Local Conda host
+    ]
+    ollama_client = None
+    for host in hosts_to_try:
+        try:
+            temp_client = Client(host=host)
+            temp_client.list() # Test connectivity
+            ollama_client = temp_client
+            print(f"Connected to Ollama at {host}")
+            break # Successfully connected, exit loop
+        except Exception as e:
+            print(f"Warning: Failed to connect to Ollama at {host}. Trying next host. Error: {e}")
+            continue
+    
+    if ollama_client is None:
+        raise ConnectionError("Failed to connect to any Ollama host.")
+    # --- End Ollama Client Instantiation ---
+
+    retriever = create_retriever(chunks, language, client=ollama_client)
     print("Retriever created successfully.")
 
     # 4. For each query: retrieve -> generate -> build prediction

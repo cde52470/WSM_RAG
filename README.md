@@ -108,6 +108,22 @@ docker-compose up --build
     *   **新：** `base_url="http://ollama:11434/v1"`
 *   **原因：** 在 `docker-compose` 網路中，`app` 服務必須使用 `ollama` 服務的「服務名稱」(`ollama`) 來連接，而不是 `localhost`。
 
+### 7. 1201 - 符合提交格式要求 (1201 - Align with Submission Format)
+
+#### a. 調整資料集以符合格式要求
+
+*   **目的：** 使用新的 `queries_show` 資料集進行預測。此資料集不包含 `ground_truth`，專門用於生成展示用的答案。
+*   **修改 `run.sh`：**
+    *   將 RAG 系統 (`My_RAG/main.py`) 的 `--query_path` 參數，從舊的 `test_queries_*.jsonl` 檔案，改為指向新的 `dragonball_dataset/queries_show/queries_*.jsonl`。
+    *   由於新資料集沒有 `ground_truth` 會導致評估階段出錯，因此將執行 `rageval` 評估腳本的指令註解掉。
+
+#### b. 修正 Docker 內部 Ollama 連線問題
+
+*   **目的：** 解決在 Docker 環境中，`app` 服務無法連線到 `ollama` 服務的問題。
+*   **修改 `My_RAG/generator.py`：**
+    *   **舊：** `client = Client()`，此初始化方式會預設連線到 `localhost`，在容器內部會找不到目標服務。
+    *   **新：** `client = Client(host='http://ollama:11434')`，明確指定連線到 `docker-compose.yml` 中定義的 `ollama` 服務名稱。
+
 ## 疑難排解 (Troubleshooting)
 
 ### 1. `ollama-1 | exec /entrypoint.sh: no such file or directory`
@@ -145,21 +161,34 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 
 **執行 `docker-compose up --build --force-recreate` 重新建置並啟動服務以應用這些修復。**
 
-## lixiang_1114當前任務
+## lixiang_1114當前任務 (保留，此為專案原有任務記錄)
 紀錄每次結果並加上時間戳記
 
 ## 結果在這裡
-執行 `run.sh` 腳本後，結果將會儲存在專案根目錄下的 `result` 和 `predictions` 資料夾中。這兩個資料夾都會包含以時間戳記命名的子資料夾，例如 `result/20251114_074809/` 和 `predictions/20251114_074809/`。
+執行 `run.sh` 腳本後，結果將會儲存在專案根目錄下的 `results` 和 `predictions` 資料夾中。這兩個資料夾都會包含以時間戳記命名的子資料夾，例如 `results/20251114_074809/` 和 `predictions/20251114_074809/`。
 
 1.  **`result` 資料夾：**
     *   包含最終的「評估分數」檔案。
-    *   例如：`result/YYYYMMDD_HHMMSS/score_en.jsonl` 和 `result/YYYYMMDD_HHMMSS/score_zh.jsonl`。
+    *   例如：`results/YYYYMMDD_HHMMSS/score_en.jsonl` 和 `results/YYYYMMDD_HHMMSS/score_zh.jsonl`。
     *   這些檔案包含了 RAG 評估的最終分數。
 
 2.  **`predictions` 資料夾：**
     *   包含中間的「RAG 預測」檔案。
     *   例如：`predictions/YYYYMMDD_HHMMSS/predictions_en.jsonl` 和 `predictions/YYYYMMDD_HHMMSS/predictions_zh.jsonl`。
     *   這些是 `rageval` 讀取並用來計算分數的原始答案。
+
+## 新查詢資料集格式說明 (New Query Dataset Format Description)
+
+在 `dragonball_dataset/queries_show` 中的查詢檔案 (例如 `queries_en.jsonl`) 具有以下特點：
+
+*   **`prediction.content`**：
+    *   此欄位預期在程式執行過程中由 RAG 系統填入對應查詢的答案。
+    *   在執行前，此欄位通常會是空的字串。
+    *   類型：`str`
+*   **`prediction.references`**：
+    *   此欄位預期在程式執行過程中由 RAG 系統填入與查詢相關的文件片段（來自 `dragonball_docs.jsonl`）。
+    *   在執行前，此欄位通常會是空的列表。
+    *   類型：`list[str]`
 
 ## 🧹 如何停止與清理
 
@@ -174,16 +203,71 @@ RUN apt-get update && apt-get install -y curl # 新增此行
     ```
     (`-v` 會連同 `ollama_storage` volume 一起刪除)
 
+## 🚀 優化 (Optimization)
+
+### lixiang1201_2323_optimize-rag-performance
+
+**目標：** 優化 Ollama 客戶端 (Client) 的實例化，以提高 RAG 管道的整體執行效能。
+
+**改動內容：**
+
+1.  **`My_RAG/main.py` (修改):**
+    *   將 `ollama.Client` 的實例化邏輯和主機備援 (fallback) 邏輯從 `My_RAG/generator.py` 移至 `main.py`。
+    *   此邏輯現在位於查詢處理迴圈之前，確保 `ollama.Client` 物件只會被建立一次。
+    *   在 `main.py` 中，新增了 `ollama.Client` 和 `os` 的 import。
+    *   `generate_answer` 函式的呼叫現在會傳遞這個已經實例化好的 `ollama_client` 物件。
+    *   新增了連線失敗時的錯誤處理，如果所有主機都無法連線，會拋出 `ConnectionError`。
+
+2.  **`My_RAG/generator.py` (修改):**
+    *   移除了 `from ollama import Client` 的 import (因為 client 會從 `main.py` 傳入)。
+    *   修改了 `generate_answer` 函式的簽名 (signature)，使其接受一個 `ollama_client` 物件作為參數。
+    *   移除了函式內部重複建立 `ollama.Client` 物件和主機備援的邏輯。
+    *   直接使用傳入的 `ollama_client` 物件來進行 `generate` 操作。
+
+**優化效益：**
+*   避免了在每個查詢中重複實例化 `ollama.Client` 物件和執行連線檢查，大幅減少了不必要的開銷。
+*   提高了 RAG 管道在處理大量查詢時的執行效率。
+
+### esdese-feature-1
+**目標：** 引入混合檢索 (Hybrid Retrieval) 與重排序 (Reranking) 機制，提升檢索準確度。
+
+**改動內容：**
+
+1.  **Hybrid Retrieval (混合檢索):**
+    *   結合 **BM25** (關鍵字檢索) 與 **Embedding Similarity** (向量語意檢索)。
+    *   使用 `ollama` 的 embedding 模型 (或 `SentenceTransformer`) 生成文件與查詢的向量。
+    *   透過加權平均 (`alpha` 參數) 合併兩者的分數，兼顧精確匹配與語意理解。
+
+2.  **LLM Reranker (重排序):**
+    *   在初步檢索出候選文件後，使用 LLM (如 `granite4:3b`) 對候選文件進行再一次的相關性評分。
+    *   根據 LLM 的評分對結果進行重新排序，將最相關的文件排在最前面。
+
+3.  **整合優化:**
+    *   將上述功能整合進 `My_RAG/retriever.py`。
+    *   配合 `lixiang1201_2323_optimize-rag-performance` 的優化，重用 `main.py` 中建立的單一 `ollama.Client` 實例，避免重複連線開銷。
+
 ## 🚀 未來工作 (Future Work)
 
-### 主要目標：修正 RAG 檢索流程
+現在我們已經成功整合了混合檢索與 LLM 重排序機制，大幅提升了檢索的精準度。接下來，我們將專注於以下更進階的優化和探索：
 
-當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是檢索階段無法從 `dragonball_docs.jsonl` 中找到相關文件。
+#### 1. RAG 流程強化 (RAG Workflow Enhancements)
+- **進階重排序模型 (Advanced Reranking Models):** 探索並整合更專業的重排序模型 (例如 BGE Reranker)，以進一步提升排序精準度並可能降低延遲。
+- **查詢改寫與擴展 (Query Rewriting & Expansion):**
+  - **Multi-Query Generation:** 利用 LLM 從單一查詢生成多個視角的問題，擴展檢索範圍。
+  - **HyDE (Hypothetical Document Embeddings):** 生成假設性文件並用於檢索，捕捉查詢的語意意圖。
+  - **Decomposition:** 將複雜查詢分解成可獨立回答的子問題，提升RAG處理複雜問題的能力。
+  - **Step-Back Prompting:** 讓模型從具體問題回溯到更高層次的抽象概念，幫助檢索更相關的背景資訊。
 
-### 代辦事項 (To-Do)
+#### 2. 文件處理與管理 (Document Processing & Management)
+- **智能切分策略 (Intelligent Chunking Strategies):** 深入研究並實作如 `RecursiveCharacterTextSplitter` 等基於內容結構的智能切分方法，以確保資訊單元完整性，並系統性地測試 `chunk_size` 和 `chunk_overlap` 對 RAG 表現的影響。
+- **知識圖譜整合 (Knowledge Graph Integration):** 探索從文件內容構建知識圖譜的可能性，並利用圖譜檢索來處理複雜、多跳的查詢。
 
-- [ ] **偵錯 `My_RAG/main.py` 中的檢索演算法：**
-  - [ ] **分析 Chunking 策略：** 檢查文件切分是否合理，有沒有遺失關鍵資訊。
-  - [ ] **驗證 Embedding 模型：** 確認 Embedding 的效果是否能有效表達文本語意。
-  - [ ] **檢視 Similarity Search：** 檢查相似度搜索的邏輯，確認是否能正確匹配查詢與文件。
-- [ ] **暫緩更換模型：** 在檢索問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
+#### 3. 生成模型與互動 (Generation & Interaction)
+- **上下文視窗優化 (Context Window Optimization):** 精煉傳遞給生成模型的上下文，在有限的 Token 視窗內提供最關鍵且無冗餘的資訊，可能涉及摘要、資訊壓縮等技術。
+- **動態 Prompt Engineering (Dynamic Prompt Engineering):** 開發能夠根據查詢類型、檢索結果等動態調整提示詞的機制，以引導生成模型產生更精確、符合要求的答案。
+- **答案格式規範與驗證 (Answer Formatting & Validation):** 強化生成答案的格式控制與內容驗證，確保輸出的一致性與品質。
+
+#### 4. 系統級優化與評估 (System-Level Optimization & Evaluation)
+- **實時效能監控 (Real-time Performance Monitoring):** 建立 RAG 系統各環節的實時監控，識別瓶頸並進行優化。
+- **持續評估框架 (Continuous Evaluation Framework):** 建立自動化的評估流程，能夠快速反饋不同優化策略的效果。
+- **模型微調探索 (Model Fine-tuning Exploration):** 針對特定任務和資料集，微調嵌入模型、重排序模型或生成模型，以獲得更高的專案效能。
