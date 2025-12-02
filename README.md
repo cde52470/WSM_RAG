@@ -230,14 +230,28 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 
 ## 🚀 未來工作 (Future Work)
 
-### 主要目標：修正 RAG 檢索流程
+### 主要目標：提升檢索品質以提高最終分數 (Primary Goal: Improve Retrieval Quality to Increase Final Score)
 
-當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是檢索階段無法從 `dragonball_docs.jsonl` 中找到相關文件。
+當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是檢索階段 (`BM25`) 無法根據語意找到最相關的文件。以下是兩種可行的優化方案：
 
-### 代辦事項 (To-Do)
+#### 方案一 (分數優先): 全面改用向量語意檢索 (Vector Semantic Retrieval)
+*   **說明：** 將目前的 `BM25` 關鍵字檢索，替換為基於 Embedding 模型的向量檢索。這是提升分數最有效的方法。
+*   **步驟：**
+    1.  在 `retriever.py` 中，引入 `langchain` 相關套件。
+    2.  使用 `OllamaEmbeddings` 來指定一個 Embedding 模型 (例如 `nomic-embed-text`)。
+    3.  使用 `FAISS` (或類似的向量資料庫) 將所有文件區塊 (chunks) 轉換為向量並建立索引。
+    4.  在檢索時，將查詢也轉換為向量，並在 `FAISS` 索引中進行高效的相似度搜索。
+*   **優點：** 能真正理解查詢和文件的語意，大幅提升檢索的準確度 (Recall/Precision)。
+*   **缺點：** 建立索引和進行搜索的速度會比 `BM25` 慢，但應可在 30 分鐘的限制內完成。
+*   **相依套件：** `langchain`, `langchain-community`, `faiss-cpu` (或 `faiss-gpu`)。
 
-- [ ] **偵錯 `My_RAG/main.py` 中的檢索演算法：**
-  - [ ] **分析 Chunking 策略：** 檢查文件切分是否合理，有沒有遺失關鍵資訊。
-  - [ ] **驗證 Embedding 模型：** 確認 Embedding 的效果是否能有效表達文本語意。
-  - [ ] **檢視 Similarity Search：** 檢查相似度搜索的邏輯，確認是否能正確匹配查詢與文件。
-- [ ] **暫緩更換模型：** 在檢索問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
+#### 方案二 (平衡效率與分數): 採用混合檢索 (Hybrid Retrieval)
+*   **說明：** 結合 `BM25` 的速度和向量檢索的準確度，作為一個折衷方案。
+*   **步驟：**
+    1.  先用 `BM25` 從全部文件中快速篩選出一個較大的候選集 (例如 20-30 個文件)。
+    2.  接著，只針對這個小候選集，使用向量模型進行語意分析和重新排序，找出最終最相關的前幾名文件。
+*   **優點：** 在提升分數的同時，能保持比方案一更快的執行效率。
+
+### 其他代辦事項 (Other To-Do)
+- [ ] **分析 Chunking 策略：** 檢查目前固定大小的切分方式是否合理，有沒有切斷重要語意。可研究 `RecursiveCharacterTextSplitter` 等更先進的切分方法。
+- [ ] **暫緩更換生成模型：** 在檢索品質問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
