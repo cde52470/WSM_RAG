@@ -161,7 +161,7 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 
 **執行 `docker-compose up --build --force-recreate` 重新建置並啟動服務以應用這些修復。**
 
-## lixiang_1114當前任務
+## lixiang_1114當前任務 (保留，此為專案原有任務記錄)
 紀錄每次結果並加上時間戳記
 
 ## 結果在這裡
@@ -228,34 +228,46 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 *   避免了在每個查詢中重複實例化 `ollama.Client` 物件和執行連線檢查，大幅減少了不必要的開銷。
 *   提高了 RAG 管道在處理大量查詢時的執行效率。
 
+### esdese-feature-1
+**目標：** 引入混合檢索 (Hybrid Retrieval) 與重排序 (Reranking) 機制，提升檢索準確度。
+
+**改動內容：**
+
+1.  **Hybrid Retrieval (混合檢索):**
+    *   結合 **BM25** (關鍵字檢索) 與 **Embedding Similarity** (向量語意檢索)。
+    *   使用 `ollama` 的 embedding 模型 (或 `SentenceTransformer`) 生成文件與查詢的向量。
+    *   透過加權平均 (`alpha` 參數) 合併兩者的分數，兼顧精確匹配與語意理解。
+
+2.  **LLM Reranker (重排序):**
+    *   在初步檢索出候選文件後，使用 LLM (如 `granite4:3b`) 對候選文件進行再一次的相關性評分。
+    *   根據 LLM 的評分對結果進行重新排序，將最相關的文件排在最前面。
+
+3.  **整合優化:**
+    *   將上述功能整合進 `My_RAG/retriever.py`。
+    *   配合 `lixiang1201_2323_optimize-rag-performance` 的優化，重用 `main.py` 中建立的單一 `ollama.Client` 實例，避免重複連線開銷。
+
 ## 🚀 未來工作 (Future Work)
 
-當前的評估結果不佳，根本原因並非模型（裁判或生成模型）能力不足，而是目前的 `BM25` 關鍵字檢索無法根據語意找到最相關的文件。為此，我們規劃了以下優化路徑：
+現在我們已經成功整合了混合檢索與 LLM 重排序機制，大幅提升了檢索的精準度。接下來，我們將專注於以下更進階的優化和探索：
 
-#### 1. Retrieval (檢索優化)
-- **Hybrid Search (混合搜索):**
-    - **方案一 (平衡效率與分數):** 結合 `BM25` 的速度和向量檢索的準確度。先用 `BM25` 快速篩選出一個較大的候選集 (例如 20-30 個文件)，再針對此候選集進行向量語意分析和重新排序。
-    - **方案二 (分數優先):** 全面改用向量語意檢索 (`Vector Semantic Retrieval`)。引入 `langchain` 套件，使用 `OllamaEmbeddings` (如 `nomic-embed-text`) 和 `FAISS` 向量資料庫來建立文件索引，實現純語意搜索。
-- **Query Rewriting (查詢改寫):**
-  - **優先實作:**
-    - **Multi-Query:** 將一個複雜的用戶查詢分解成多個子查詢。
-    - **HyDE (Hypothetical Document Embeddings):** 生成假設性答案以提升檢索相似度。
-  - **進階方向:**
-    - **Decomposition:** 將問題拆解成更小的子問題。
-    - **Step-Back Prompting:** 從具體問題回退到抽象概念進行檢索。
+#### 1. RAG 流程強化 (RAG Workflow Enhancements)
+- **進階重排序模型 (Advanced Reranking Models):** 探索並整合更專業的重排序模型 (例如 BGE Reranker)，以進一步提升排序精準度並可能降低延遲。
+- **查詢改寫與擴展 (Query Rewriting & Expansion):**
+  - **Multi-Query Generation:** 利用 LLM 從單一查詢生成多個視角的問題，擴展檢索範圍。
+  - **HyDE (Hypothetical Document Embeddings):** 生成假設性文件並用於檢索，捕捉查詢的語意意圖。
+  - **Decomposition:** 將複雜查詢分解成可獨立回答的子問題，提升RAG處理複雜問題的能力。
+  - **Step-Back Prompting:** 讓模型從具體問題回溯到更高層次的抽象概念，幫助檢索更相關的背景資訊。
 
-#### 2. Chunking (文件切分策略)
-- **Chunk Size & Overlap:** 系統性地測試不同的 `chunk_size` 和 `chunk_overlap`，找到最佳組合。
-- **Advanced Splitters:** 研究並引入如 `RecursiveCharacterTextSplitter` 等更先進的切分方法，避免切斷重要語意。
+#### 2. 文件處理與管理 (Document Processing & Management)
+- **智能切分策略 (Intelligent Chunking Strategies):** 深入研究並實作如 `RecursiveCharacterTextSplitter` 等基於內容結構的智能切分方法，以確保資訊單元完整性，並系統性地測試 `chunk_size` 和 `chunk_overlap` 對 RAG 表現的影響。
+- **知識圖譜整合 (Knowledge Graph Integration):** 探索從文件內容構建知識圖譜的可能性，並利用圖譜檢索來處理複雜、多跳的查詢。
 
-#### 3. Augmented Generation (生成優化)
-- **Prompt Engineering (提示工程):**
-  - **Prompt Template:** 設計更精細的提示詞模板，指導模型如何利用上下文。
-  - **Answer Format:** 規範模型輸出格式以利評估。
-- **Context Handling (上下文處理):**
-  - 開發更有效的策略來抽取、過濾並結合檢索到的內容。
-- **Model Strategy:**
-  - **暫緩更換生成模型:** 在檢索品質問題解決前，無需更換 `gemma:2b` 或 `granite4:3b` 模型。
+#### 3. 生成模型與互動 (Generation & Interaction)
+- **上下文視窗優化 (Context Window Optimization):** 精煉傳遞給生成模型的上下文，在有限的 Token 視窗內提供最關鍵且無冗餘的資訊，可能涉及摘要、資訊壓縮等技術。
+- **動態 Prompt Engineering (Dynamic Prompt Engineering):** 開發能夠根據查詢類型、檢索結果等動態調整提示詞的機制，以引導生成模型產生更精確、符合要求的答案。
+- **答案格式規範與驗證 (Answer Formatting & Validation):** 強化生成答案的格式控制與內容驗證，確保輸出的一致性與品質。
 
-#### 4. Advanced RAG (進階策略)
-- **Context Window Optimization (上下文視窗優化):** 針對模型的上下文長度限制進行優化，確保傳遞最核心的資訊。
+#### 4. 系統級優化與評估 (System-Level Optimization & Evaluation)
+- **實時效能監控 (Real-time Performance Monitoring):** 建立 RAG 系統各環節的實時監控，識別瓶頸並進行優化。
+- **持續評估框架 (Continuous Evaluation Framework):** 建立自動化的評估流程，能夠快速反饋不同優化策略的效果。
+- **模型微調探索 (Model Fine-tuning Exploration):** 針對特定任務和資料集，微調嵌入模型、重排序模型或生成模型，以獲得更高的專案效能。

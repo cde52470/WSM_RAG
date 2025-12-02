@@ -1,29 +1,44 @@
-# from ollama import Client # Removed as client is passed
-import os # Keep os for getenv
+from ollama import Client
+from pathlib import Path
+import yaml
 
-def generate_answer(query, context_chunks, ollama_client): # Added ollama_client argument
+def load_ollama_config() -> dict:
+    configs_folder = Path(__file__).parent.parent / "configs"
+    config_paths = [
+        configs_folder / "config_local.yaml",
+        configs_folder / "config_submit.yaml",
+    ]
+    config_path = None
+    for path in config_paths:
+        if path.exists():
+            config_path = path
+            break
+
+    if config_path is None:
+        raise FileNotFoundError("No configuration file found.")
+
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+
+    assert "ollama" in config, "Ollama configuration not found in config file."
+    assert "host" in config["ollama"], "Ollama host not specified in config file."
+    assert "model" in config["ollama"], "Ollama model not specified in config file."
+    return config["ollama"]
+
+
+def generate_answer(query, context_chunks, ollama_client):
     context = "\n\n".join([chunk['page_content'] for chunk in context_chunks])
-    prompt = f"""You are a helpful assistant for question-answering tasks.
-Use the following pieces of retrieved context to answer the question.
-If the answer is not in the context, just say that you don't know.
-Keep the answer concise and strictly based on the provided context.
-
-<context>
-{context}
-</context>
-
-<question>
-{query}
-</question>
-
-Answer:"""
+    prompt = f"""You are an assistant for question-answering tasks. \
+Use the following pieces of retrieved context to answer the question. \
+If you don't know the answer, just say that you don't know. \
+Use three sentences maximum and keep the answer concise.\n\nQuestion: {query} \nContext: {context} \nAnswer:\n"""
+    
+    model="granite4:3b"
     try:
-        model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
-        response = ollama_client.generate(model=model_name, prompt=prompt, stream=False) # Use passed client
-        return response.get("response", "No response from model.")
+        response = ollama_client.generate(model=model, prompt=prompt)
+        return response["response"]
     except Exception as e:
-        return f"Error using Ollama Python client: {e}"
-
+        return f"Error generating answer: {e}"
 
 if __name__ == "__main__":
     # test the function
@@ -32,5 +47,7 @@ if __name__ == "__main__":
         {"page_content": "France is a country in Europe. Its capital is Paris."},
         {"page_content": "The Eiffel Tower is located in Paris, the capital city of France."}
     ]
-    answer = generate_answer(query, context_chunks)
-    print("Generated Answer:", answer)
+    # Mock client for testing if needed, or just comment out
+    # answer = generate_answer(query, context_chunks, client)
+    # print("Generated Answer:", answer)
+    pass

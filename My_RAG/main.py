@@ -3,9 +3,8 @@ from utils import load_jsonl, save_jsonl
 from chunker import chunk_documents
 from retriever import create_retriever
 from generator import generate_answer
+from ollama import Client
 import argparse
-from ollama import Client # New import
-import os # New import
 
 def main(query_path, docs_path, language, output_path):
     # 1. Load Data
@@ -21,11 +20,10 @@ def main(query_path, docs_path, language, output_path):
     print(f"Created {len(chunks)} chunks.")
 
     # 3. Create Retriever
+    # 3. Create Retriever
     print("Creating retriever...")
-    retriever = create_retriever(chunks, language)
-    print("Retriever created successfully.")
 
-    # --- Ollama Client Instantiation (moved from generator.py) ---
+    # --- Ollama Client Instantiation ---
     hosts_to_try = [
         "http://ollama-gateway:11434",  # Submission host
         "http://ollama:11434",          # Local Docker host
@@ -47,16 +45,20 @@ def main(query_path, docs_path, language, output_path):
         raise ConnectionError("Failed to connect to any Ollama host.")
     # --- End Ollama Client Instantiation ---
 
+    retriever = create_retriever(chunks, language, client=ollama_client)
+    print("Retriever created successfully.")
+
+
     for query in tqdm(queries, desc="Processing Queries"):
         # 4. Retrieve relevant chunks
         query_text = query['query']['content']
         # print(f"\nRetrieving chunks for query: '{query_text}'")
-        retrieved_chunks = retriever.retrieve(query_text)
+        retrieved_chunks = retriever.retrieve(query_text, top_k=3)
         # print(f"Retrieved {len(retrieved_chunks)} chunks.")
 
         # 5. Generate Answer
         # print("Generating answer...")
-        answer = generate_answer(query_text, retrieved_chunks, ollama_client) # Pass client
+        answer = generate_answer(query_text, retrieved_chunks, ollama_client)
 
         query["prediction"]["content"] = answer
         query["prediction"]["references"] = [retrieved_chunks[0]['page_content']]
