@@ -262,6 +262,25 @@ RUN apt-get update && apt-get install -y curl # 新增此行
 3.  **流程整合 (`My_RAG/main.py`):**
     *   調整了 `main.py` 中的函式呼叫，以兼容新的 `generator.py`（傳遞 `language` 參數）。
 
+### wang
+**目標：** 吸收 `wang` 分支的優化項目，包含新的混合檢索策略、答案引用來源以及更精準的參考資料篩選。
+
+**改動內容：**
+
+1.  **兩階段混合檢索 (`My_RAG/retriever.py`):**
+    *   引入了新的 `HybridBM25EmbeddingRetriever`。
+    *   **策略：** 首先使用 BM25 從大量文件中快速篩選出 30 個候選，然後僅對這些候選文件計算向量，最後使用向量相似度進行精確的重排序（Re-ranking）。
+    *   **效益：** 這是一種高效的兩階段檢索策略，兼顧了速度與準確性。
+
+2.  **答案引用來源 (`My_RAG/generator.py`):**
+    *   修改了 Prompt，要求 LLM 在生成答案後，必須明確標示出答案是參考了哪些上下文（例如 `Sources: [1], [3]`）。
+    *   這項改動大幅提升了答案的可追溯性和可信度。
+
+3.  **句子級參考資料 (`My_RAG/main.py`):**
+    *   新增了 `_select_reference_sentences` 函式。
+    *   它不再將整個文件區塊（chunk）作為參考資料，而是進一步從區塊中，挑選出與問題最相關的幾個**句子**作為最終的 `references`。
+    *   這使得參考資料更為精準、簡潔。
+
 ## 🚀 未來工作 (Future Work)
 
 梳理流程

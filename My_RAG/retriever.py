@@ -1,199 +1,124 @@
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
-import jieba
 from rank_bm25 import BM25Okapi
-
-from generator import load_ollama_config
-
-try:
-    from ollama import Client
-except ImportError:
-    Client = None
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    SentenceTransformer = None
+import jieba
+import os
+import math
+from ollama import Client
 
 
-def _safe_cosine(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> float:
-    if a is None or b is None or a.size == 0 or b.size == 0:
-        return 0.0
-    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if denom == 0:
-        return 0.0
-    return float(np.dot(a, b) / denom)
+class BM25Retriever:
+    """純 BM25 的 retriever（當作 hybrid 的第一階段 filter）。"""
 
-
-class HybridRetriever:
-    """
-    Hybrid retrieval = BM25 + Embedding similarity, followed by optional LLM rerank.
-    BM25 provides exact token recall, embeddings broaden semantics, reranker sharpens the top list.
-    """
-
-    def __init__(
-        self,
-        chunks: List[Dict[str, Any]],
-        language: str = "en",
-        alpha: float = 0.5,
-        bm25_top_n: int = 50,
-        embed_top_n: int = 50,
-        rerank_top_n: int = 50,
-        rerank_model: Optional[str] = None,
-        embedding_model: Optional[str] = None,
-        dense_model: Optional[str] = None,
-        client: Optional[Any] = None,
-    ):
+    def __init__(self, chunks, language: str = "en"):
+        self.chunks = chunks
         self.language = language
-        self.chunks = [
-            c
-            for c in chunks
-            if not language
-            or c.get("metadata", {}).get("language") == language
-            or c.get("language") == language
-        ]
-        self.alpha = alpha
-        self.bm25_top_n = bm25_top_n
-        self.embed_top_n = embed_top_n
-        self.rerank_top_n = rerank_top_n
+        self.corpus = [chunk['page_content'] for chunk in chunks]
 
-        self.corpus = [chunk["page_content"] for chunk in self.chunks]
-        self.tokenized_corpus = [self._tokenize(doc) for doc in self.corpus]
+        if language == "zh":
+            self.tokenized_corpus = [list(jieba.cut(doc)) for doc in self.corpus]
+        else:
+            self.tokenized_corpus = [doc.split() for doc in self.corpus]
+
         self.bm25 = BM25Okapi(self.tokenized_corpus)
 
-        self.ollama_client = client # Use passed client
-        self.embedding_model = embedding_model
-        self.rerank_model = rerank_model
-        self.dense_model_name = dense_model
-        self.dense_encoder: Optional[SentenceTransformer] = None
-        self.chunk_embeddings: List[Optional[np.ndarray]] = [None] * len(self.chunks)
-
-        if self.ollama_client:
-             try:
-                config = load_ollama_config()
-                # host = config.get("host", "http://localhost:11434") # Host is handled by client
-                # self.ollama_client = Client(host=host) # Removed
-                self.embedding_model = embedding_model or config.get("embedding_model") or config.get("model")
-                self.rerank_model = rerank_model or config.get("rerank_model") or config.get("model")
-             except Exception:
-                # self.ollama_client = None # Don't set to None if passed, just maybe warn?
-                pass
-
-        if SentenceTransformer is not None:
-            try:
-                config = load_ollama_config()
-                self.dense_model_name = dense_model or config.get("dense_model") or "sentence-transformers/all-MiniLM-L6-v2"
-                self.dense_encoder = SentenceTransformer(self.dense_model_name)
-            except Exception:
-                self.dense_encoder = None
-
-        if self.ollama_client and self.embedding_model:
-            self._precompute_embeddings()
-        elif self.dense_encoder:
-            self._precompute_embeddings()
-
-    def _tokenize(self, text: str):
+    def _tokenize_query(self, query: str):
         if self.language == "zh":
-            return list(jieba.cut(text))
-        return text.split()
-
-    def _embed_text(self, text: str) -> Optional[np.ndarray]:
-        if self.dense_encoder is not None:
-            try:
-                return np.asarray(self.dense_encoder.encode(text, normalize_embeddings=True))
-            except Exception:
-                return None
-        if self.ollama_client and self.embedding_model:
-            try:
-                resp = self.ollama_client.embeddings(model=self.embedding_model, prompt=text)
-                embedding = resp.get("embedding") or (resp.get("data") or [{}])[0].get("embedding")
-                return np.array(embedding, dtype=float) if embedding else None
-            except Exception:
-                return None
-        return None
-
-    def _precompute_embeddings(self):
-        for idx, text in enumerate(self.corpus):
-            self.chunk_embeddings[idx] = self._embed_text(text)
-
-    def _hybrid_scores(self, query_tokens: List[str], query_embedding: Optional[np.ndarray]) -> List[Tuple[int, float]]:
-        bm25_scores = self.bm25.get_scores(query_tokens)
-
-        bm25_top_idx = np.argsort(bm25_scores)[::-1][: self.bm25_top_n]
-
-        embed_scores = np.zeros(len(self.chunks))
-        if query_embedding is not None:
-            for idx, emb in enumerate(self.chunk_embeddings):
-                if emb is not None:
-                    embed_scores[idx] = _safe_cosine(query_embedding, emb)
-        embed_top_idx = np.argsort(embed_scores)[::-1][: self.embed_top_n]
-
-        candidate_indices = set(bm25_top_idx.tolist() + embed_top_idx.tolist())
-
-        hybrid = []
-        for idx in candidate_indices:
-            bm25_score = bm25_scores[idx]
-            embed_score = embed_scores[idx] if query_embedding is not None else 0.0
-            combined = self.alpha * bm25_score + (1 - self.alpha) * embed_score
-            hybrid.append((idx, combined))
-
-        hybrid.sort(key=lambda x: x[1], reverse=True)
-        return hybrid
-
-    def _rerank(self, query: str, candidates: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
-        if not self.ollama_client or not self.rerank_model:
-            return candidates
-
-        reranked: List[Tuple[int, float]] = []
-        for idx, _ in candidates[: self.rerank_top_n]:
-            doc = self.chunks[idx]["page_content"]
-            prompt = (
-                "Given the query and document, provide a single relevance score between 0 and 1. "
-                "Respond with only the number.\n"
-                f"Query: {query}\n"
-                f"Document: {doc}\n"
-                "Relevance score:"
-            )
-            try:
-                resp = self.ollama_client.generate(model=self.rerank_model, prompt=prompt)
-                text = resp.get("response", "").strip()
-                score = float(text.split()[0])
-            except Exception:
-                score = 0.0
-            reranked.append((idx, score))
-
-        reranked.sort(key=lambda x: x[1], reverse=True)
-        return reranked
+            return list(jieba.cut(query))
+        else:
+            return query.split()
 
     def retrieve(self, query: str, top_k: int = 5):
-        query_tokens = self._tokenize(query)
-        query_embedding = self._embed_text(query) if self.ollama_client and self.embedding_model else None
-
-        hybrid_candidates = self._hybrid_scores(query_tokens, query_embedding)
-        reranked = self._rerank(query, hybrid_candidates)
-
-        final = reranked[:top_k]
-        return [self.chunks[idx] for idx, _ in final]
+        """回傳 BM25 分數最高的 top_k 個 chunks。"""
+        tokenized_query = self._tokenize_query(query)
+        top_chunks = self.bm25.get_top_n(tokenized_query, self.chunks, n=top_k)
+        return top_chunks
 
 
-def create_retriever(
-    chunks: List[Dict[str, Any]],
-    language: str,
-    alpha: float = 0.5,
-    bm25_top_n: int = 50,
-    embed_top_n: int = 50,
-    rerank_top_n: int = 50,
-    dense_model: Optional[str] = None,
-    client: Optional[Any] = None,
-):
-    """Creates a hybrid retriever that mixes BM25, embeddings, and an optional reranker."""
-    return HybridRetriever(
-        chunks,
-        language,
-        alpha=alpha,
-        bm25_top_n=bm25_top_n,
-        embed_top_n=embed_top_n,
-        rerank_top_n=rerank_top_n,
-        dense_model=dense_model,
-        client=client,
-    )
+class HybridBM25EmbeddingRetriever:
+    """Hybrid retriever: BM25 pre-filter + dense embedding re-ranking."""
+
+    def __init__(self, chunks, language: str = "en", client: Client = None, candidate_k: int = 30):
+        self.chunks = chunks
+        self.language = language
+        self.candidate_k = candidate_k
+        self.bm25_retriever = BM25Retriever(chunks, language)
+        self.client = client # Use passed client
+
+        if language == "zh":
+            self.embedding_model = os.environ.get("EMBED_MODEL_ZH", "qwen3-embedding:0.6b")
+        else:
+            self.embedding_model = os.environ.get("EMBED_MODEL_EN", "nomic-embed-text")
+
+    def _embed_single(self, text: str):
+        """計算單一句子的 embedding。"""
+        if not self.client:
+            return None
+        try:
+            resp = self.client.embeddings(model=self.embedding_model, prompt=text)
+            return resp.get("embedding")
+        except Exception as e:
+            print(f"[HybridRetriever] Error embedding single text: {e}")
+            return None
+
+    def _embed_batch(self, texts: list[str]):
+        """一批 texts 一次做 embedding。"""
+        if not self.client:
+            return []
+        try:
+            # Note: The ollama-python library's embed function is not ideal for batching as it sends one by one.
+            # A more optimized client might send them in parallel.
+            embeddings = []
+            for text in texts:
+                resp = self.client.embeddings(model=self.embedding_model, prompt=text)
+                embeddings.append(resp.get("embedding"))
+            return embeddings
+        except Exception as e:
+            print(f"[HybridRetriever] Error embedding batch: {e}")
+            return []
+
+    @staticmethod
+    def _cosine_similarity(vec1, vec2):
+        if not vec1 or not vec2:
+            return 0.0
+        dot = 0.0
+        norm1 = 0.0
+        norm2 = 0.0
+        for a, b in zip(vec1, vec2):
+            dot += a * b
+            norm1 += a * a
+            norm2 += b * b
+        if norm1 <= 0.0 or norm2 <= 0.0:
+            return 0.0
+        return dot / (math.sqrt(norm1) * math.sqrt(norm2))
+
+    def retrieve(self, query: str, top_k: int = 5):
+        # 1) 先用 BM25 取 candidate_k 個候選
+        candidates = self.bm25_retriever.retrieve(query, top_k=self.candidate_k)
+        if not candidates:
+            return []
+
+        # 2) 計算 query embedding
+        query_emb = self._embed_single(query)
+        if query_emb is None:
+            # 如果 embedding 掛掉，就退回純 BM25
+            return candidates[:top_k]
+
+        # 3) 候選 chunks embedding（一次 batch）
+        cand_texts = [c["page_content"] for c in candidates]
+        cand_embs = self._embed_batch(cand_texts)
+        if not cand_embs or len(cand_embs) != len(candidates):
+            return candidates[:top_k]
+
+        # 4) cosine similarity re-ranking
+        scored = []
+        for chunk, emb in zip(candidates, cand_embs):
+            if emb:
+                sim = self._cosine_similarity(query_emb, emb)
+                scored.append((chunk, sim))
+
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [c for c, _ in scored[:top_k}]
+
+
+def create_retriever(chunks, language, client):
+    """工廠函式：回傳 hybrid BM25 + embedding 的 retriever。"""
+    return HybridBM25EmbeddingRetriever(chunks, language, client=client)
