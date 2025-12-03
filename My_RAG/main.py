@@ -1,3 +1,4 @@
+import os
 from tqdm import tqdm
 from utils import load_jsonl, save_jsonl
 from chunker import chunk_documents
@@ -5,6 +6,30 @@ from retriever import create_retriever
 from generator import generate_answer
 from ollama import Client
 import argparse
+
+# --- [NEW] Multi-Query Generation Function ---
+def generate_multiple_queries(original_query: str, ollama_client: Client) -> list[str]:
+    """Generates variations of the original query using an LLM."""
+    prompt = f"""You are a helpful assistant. Your task is to generate 3 different versions of the given user question to retrieve relevant documents from a vector database.
+By generating multiple perspectives on the user question, we can help the user overcome some of the limitations of the distance-based similarity search.
+Provide these alternative questions separated by newlines. Only provide the questions, no other text.
+
+Original question: {original_query}"""
+
+    try:
+        # Use a smaller, faster model for this task if available
+        model_name = os.getenv("REWRITER_MODEL", "gemma:2b")
+        response = ollama_client.generate(model=model_name, prompt=prompt, stream=False)
+        generated_text = response.get("response", "")
+        # Split the response by newlines and filter out any empty strings
+        queries = [q.strip() for q in generated_text.split('\n') if q.strip()]
+        # Add the original query to the list
+        queries.insert(0, original_query)
+        return list(set(queries)) # Return unique queries
+    except Exception as e:
+        print(f"Warning: Failed to generate multiple queries, using original query only. Error: {e}")
+        return [original_query]
+# --- [END NEW] ---
 
 def main(query_path, docs_path, language, output_path):
     # 1. Load Data
@@ -19,7 +44,6 @@ def main(query_path, docs_path, language, output_path):
     chunks = chunk_documents(docs_for_chunking, language)
     print(f"Created {len(chunks)} chunks.")
 
-    # 3. Create Retriever
     # 3. Create Retriever
     print("Creating retriever...")
 
@@ -45,23 +69,37 @@ def main(query_path, docs_path, language, output_path):
         raise ConnectionError("Failed to connect to any Ollama host.")
     # --- End Ollama Client Instantiation ---
 
-    retriever = create_retriever(chunks, language, client=ollama_client)
+    retriever = create_retriever(chunks, language)
     print("Retriever created successfully.")
 
 
     for query in tqdm(queries, desc="Processing Queries"):
-        # 4. Retrieve relevant chunks
-        query_text = query['query']['content']
-        # print(f"\nRetrieving chunks for query: '{query_text}'")
-        retrieved_chunks = retriever.retrieve(query_text, top_k=3)
-        # print(f"Retrieved {len(retrieved_chunks)} chunks.")
+        original_query_text = query['query']['content']
+        
+        # --- [MODIFIED] Multi-Query Retrieval ---
+        # 4a. Generate multiple queries
+        all_queries = generate_multiple_queries(original_query_text, ollama_client)
+        # print(f"\nGenerated {len(all_queries)} queries: {all_queries}")
+
+        # 4b. Retrieve for all queries and de-duplicate chunks
+        all_retrieved_chunks = []
+        for q_text in all_queries:
+            retrieved = retriever.retrieve(q_text, top_k=3)
+            all_retrieved_chunks.extend(retrieved)
+        
+        # De-duplicate chunks based on page_content
+        unique_chunks_dict = {chunk['page_content']: chunk for chunk in all_retrieved_chunks}
+        final_chunks = list(unique_chunks_dict.values())
+        # print(f"Retrieved {len(final_chunks)} unique chunks.")
+        # --- [END MODIFIED] ---
 
         # 5. Generate Answer
-        # print("Generating answer...")
-        answer = generate_answer(query_text, retrieved_chunks, ollama_client)
+        # Use original query for answer generation
+        answer = generate_answer(original_query_text, final_chunks, ollama_client)
 
         query["prediction"]["content"] = answer
-        query["prediction"]["references"] = [retrieved_chunks[0]['page_content']]
+        # Store all unique retrieved page contents as references
+        query["prediction"]["references"] = [chunk['page_content'] for chunk in final_chunks]
 
     save_jsonl(output_path, queries)
     print("Predictions saved at '{}'".format(output_path))
