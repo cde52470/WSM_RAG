@@ -104,22 +104,23 @@ def main(query_path, docs_path, language, output_path):
         original_query_text = query['query']['content']
         qLanguage = query.get("language", language) or "en"
         
-        all_queries = generate_multiple_queries(original_query_text, ollama_client)
+        # --- [EXPERIMENT] Temporarily disabled Multi-Query to test Hybrid Retriever performance ---
+        # 4a. Generate multiple queries (DISABLED)
+        # all_queries = generate_multiple_queries(original_query_text, ollama_client)
         
-        all_retrieved_chunks = []
-        for q_text in all_queries:
-            retrieved = retriever.retrieve(q_text, top_k=10) # Increased top_k for multi-query
-            all_retrieved_chunks.extend(retrieved)
-        
-        unique_chunks_dict = {chunk['page_content']: chunk for chunk in all_retrieved_chunks}
-        final_chunks = list(unique_chunks_dict.values())
-        
+        # 4b. Retrieve for the original query only
+        final_chunks = retriever.retrieve(original_query_text, top_k=10) # Using original query
+        # --- [END EXPERIMENT] ---
+
+        # 5. Generate Answer
+        # Use original query for answer generation
         answer = generate_answer(original_query_text, final_chunks, qLanguage, ollama_client=ollama_client)
 
         if "prediction" not in query:
             query["prediction"] = {}
         query["prediction"]["content"] = answer
         
+        # Use the same chunks for reference selection
         reference_sentences = _select_reference_sentences(original_query_text, final_chunks, qLanguage, max_refs=5)
         query["prediction"]["references"] = reference_sentences
 
