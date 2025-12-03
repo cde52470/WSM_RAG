@@ -271,6 +271,7 @@ RUN apt-get update && apt-get install -y curl # 新增此行
     *   引入了新的 `HybridBM25EmbeddingRetriever`。
     *   **策略：** 首先使用 BM25 從大量文件中快速篩選出 30 個候選，然後僅對這些候選文件計算向量，最後使用向量相似度進行精確的重排序（Re-ranking）。
     *   **效益：** 這是一種高效的兩階段檢索策略，兼顧了速度與準確性。
+    *   **向量模型：** 中文使用 `qwen3-embedding:0.6b`，英文使用 `embeddinggemma:300m`。(註：`nomic-embed-text` 是另一個可能表現更好的英文模型，但需另外執行 `ollama pull nomic-embed-text` 下載)。
 
 2.  **答案引用來源 (`My_RAG/generator.py`):**
     *   修改了 Prompt，要求 LLM 在生成答案後，必須明確標示出答案是參考了哪些上下文（例如 `Sources: [1], [3]`）。
