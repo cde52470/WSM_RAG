@@ -3,10 +3,10 @@ from utils import load_jsonl, save_jsonl
 from chunker import chunk_documents
 from retriever import create_retriever
 from generator import generate_answer
-from ollama import Client
 import argparse
 import re
 import jieba
+from ollama import Client
 
 
 def _split_sentences(text: str, language: str):
@@ -104,10 +104,10 @@ def main(query_path, docs_path, language, output_path):
     print(f"Created {len(chunks)} chunks.")
 
     # 3. Create Retriever
-    # 3. Create Retriever
     print("Creating retriever...")
+    retriever = create_retriever(chunks, language)
+    print("Retriever created successfully.")
 
-    # --- Ollama Client Instantiation ---
     hosts_to_try = [
         "http://ollama-gateway:11434",  # Submission host
         "http://ollama:11434",          # Local Docker host

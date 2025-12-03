@@ -1,7 +1,3 @@
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
-import jieba
 from rank_bm25 import BM25Okapi
 import jieba
 import os
@@ -65,11 +61,11 @@ class HybridBM25EmbeddingRetriever:
 
         # 依語言選 embedding model（可以之後改成你想試的 model）
         if language == "zh":
-            # 中文用 Qwen3 embedding
+    # 中文 embedding 模型（依 TA 說明換掉也行）
             self.embedding_model = os.environ.get("EMBED_MODEL_ZH", "qwen3-embedding:0.6b")
         else:
-            # 英文用 embeddinggemma
-            self.embedding_model = os.environ.get("EMBED_MODEL_EN", "embeddinggemma:300m")
+            # 英文改回一個確定存在的 embedding 模型
+            self.embedding_model = os.environ.get("EMBED_MODEL_EN", "nomic-embed-text")
 
         self.client = _get_ollama_client()
 

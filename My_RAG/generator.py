@@ -57,7 +57,8 @@ def generate_answer(query, context_chunks):
         # Ollama Python client 回傳 dict，文字在 'response'
         return response.get("response", "No response from model.")
     except Exception as e:
-        return f"Error generating answer: {e}"
+        return f"Error using Ollama Python client: {e}"
+
 
 if __name__ == "__main__":
     # 簡單本地測試
