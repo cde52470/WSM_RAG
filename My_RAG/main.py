@@ -75,6 +75,7 @@ def main(query_path, docs_path, language, output_path):
 
     for query in tqdm(queries, desc="Processing Queries"):
         original_query_text = query['query']['content']
+        qLanguage = query.get("language", language) or "en"
         
         # --- [MODIFIED] Multi-Query Retrieval ---
         # 4a. Generate multiple queries
@@ -95,7 +96,7 @@ def main(query_path, docs_path, language, output_path):
 
         # 5. Generate Answer
         # Use original query for answer generation
-        answer = generate_answer(original_query_text, final_chunks, ollama_client)
+        answer = generate_answer(original_query_text, final_chunks, qLanguage, ollama_client=ollama_client)
 
         query["prediction"]["content"] = answer
         # Store all unique retrieved page contents as references

@@ -1,68 +1,75 @@
-from typing import Any, Dict, List, Optional
+import re
 
 
-def _validate_chunk_params(chunk_size: int, chunk_overlap: int) -> int:
-    """Validate chunk configuration and return the step size."""
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be a positive integer.")
-    if chunk_overlap < 0:
-        raise ValueError("chunk_overlap cannot be negative.")
-    if chunk_overlap >= chunk_size:
-        raise ValueError("chunk_overlap must be smaller than chunk_size to avoid an infinite loop.")
-    return chunk_size - chunk_overlap
+def chunk_documents(docs, language, chunk_size=800, chunk_overlap=300):
+    """Split documents into overlapping chunks on sentence-like boundaries."""
+    chunks = []
+    language = str(language).lower().strip()
+    chunk_overlap = max(0, min(chunk_overlap, chunk_size))
+    separators = (
+        ["\n\n", "\n", ". ", "! ", "? ", "; "]
+        if language == "en"
+        else [
+            "\n\n",
+            "\n",
+            "。",
+            "！",
+            "？",
+            "；",
+        ]
+    )
+    pattern = f"({'|'.join(map(re.escape, separators))})"
 
-
-def chunk_documents(
-    docs: List[Dict[str, Any]],
-    language: Optional[str],
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200,
-) -> List[Dict[str, Any]]:
-    """
-    Split documents into overlapping character chunks.
-
-    Only documents whose language matches the provided `language` are chunked.
-    When `language` is None or empty, all documents are processed.
-    """
-    step = _validate_chunk_params(chunk_size, chunk_overlap)
-    chunks: List[Dict[str, Any]] = []
-
-    for doc_index, doc in enumerate(docs):
+    for doc in docs:
         text = doc.get("content")
-        lang = doc.get("language")
-
-        if not isinstance(text, str) or not text.strip():
-            # Skip empty or malformed documents to avoid silent failures later.
-            continue
-        if language and lang != language:
+        if not isinstance(text, str):
             continue
 
-        text = text.strip()
-        text_len = len(text)
-        start_index = 0
-        chunk_count = 0
+        doc_lang = doc.get("language", "en").lower().strip()
+        if doc_lang != language:
+            continue
 
-        while start_index < text_len:
-            end_index = min(start_index + chunk_size, text_len)
+        parts = re.split(pattern, text)
 
-            chunk_metadata = {k: v for k, v in doc.items() if k != "content"}
-            chunk_metadata.update(
-                {
-                    "chunk_index": chunk_count,
-                    "doc_index": doc_index,
-                    "char_start": start_index,
-                    "char_end": end_index,
-                }
-            )
+        # Preserve separators by merging every pair of text + separator.
+        sentences = []
+        for i in range(0, len(parts), 2):
+            seg = parts[i]
+            sep = parts[i + 1] if i + 1 < len(parts) else ""
+            combined = f"{seg}{sep}"
+            if combined:
+                sentences.append(combined)
 
-            chunks.append(
-                {
-                    "page_content": text[start_index:end_index],
-                    "metadata": chunk_metadata,
-                }
-            )
+        current = []
+        current_len = 0
+        chunk_index = 0
 
-            start_index += step
-            chunk_count += 1
+        for sentence in sentences:
+            sent_len = len(sentence)
+            if current and current_len + sent_len > chunk_size:
+                chunk_text = "".join(current).strip()
+                chunk_metadata = doc.copy()
+                chunk_metadata.pop("content", None)
+                chunk_metadata["chunk_index"] = chunk_index
+                chunks.append({"page_content": chunk_text, "metadata": chunk_metadata})    
+                chunk_index += 1
+
+                if chunk_overlap > 0:
+                    overlap_text = "".join(current)[-chunk_overlap:]
+                    current = [overlap_text] if overlap_text else []
+                    current_len = len(overlap_text)
+                else:
+                    current = []
+                    current_len = 0
+
+            current.append(sentence)
+            current_len += sent_len
+
+        if current:
+            chunk_text = "".join(current).strip()
+            chunk_metadata = doc.copy()
+            chunk_metadata.pop("content", None)
+            chunk_metadata["chunk_index"] = chunk_index
+            chunks.append({"page_content": chunk_text, "metadata": chunk_metadata})        
 
     return chunks

@@ -246,6 +246,22 @@ RUN apt-get update && apt-get install -y curl # 新增此行
     *   將上述功能整合進 `My_RAG/retriever.py`。
     *   配合 `lixiang1201_2323_optimize-rag-performance` 的優化，重用 `main.py` 中建立的單一 `ollama.Client` 實例，避免重複連線開銷。
 
+### uuuu
+**目標：** 吸收 `uuuu` 分支的優化項目，包含智能文件切分與精細提示工程。
+
+**改動內容：**
+
+1.  **智能文件切分 (`My_RAG/chunker.py`):**
+    *   引入了基於句子邊界的切分方法，取代了原有的固定長度切分。
+    *   新方法會根據句號、換行符等標點符號來分割文本，確保每個文件區塊（chunk）的語意完整性，對提升檢索品質有正面幫助。
+
+2.  **精細提示工程 (`My_RAG/generator.py`):**
+    *   針對中、英文設計了更詳細、更具指導性的 Prompt。
+    *   新的 Prompt 明確指示 LLM 必須嚴格根據上下文回答、仔細比對公司名稱與年份等實體，並完整包含所有關鍵資訊，以提高生成答案的忠實度和準確性。
+
+3.  **流程整合 (`My_RAG/main.py`):**
+    *   調整了 `main.py` 中的函式呼叫，以兼容新的 `generator.py`（傳遞 `language` 參數）。
+
 ## 🚀 未來工作 (Future Work)
 
 梳理流程
