@@ -165,6 +165,22 @@ docker-compose up --build
     *   如果停用 `Multi-Query` 後分數**回升**，則證明假設成立，未來優化方向應為改善 `Multi-Query` 的查詢品質，或採用更智能的合併策略。
     *   如果分數**依然很差**，則表示問題可能出在「兩階段混合檢索」策略本身，它可能不如 `uuuu` 分支中那個更簡單的 BM25 檢索器適合此資料集。
 
+### lixiang1202_optimize-rag-performance(1204)
+**目標：** 進行兩階段實驗，首先驗證消融 `Multi-Query` 的影響，接著導入 `Stemming` 技術。
+
+**實驗內容：**
+
+1.  **消融 `Multi-Query` (`My_RAG/main.py`):**
+    *   **目的：** 驗證禁用 `Multi-Query` 功能對檢索效能的影響。此實驗已在先前的版本中完成。
+    *   **方法：** 暫時停用 `generate_multiple_queries` 函式，僅使用原始查詢進行檢索。
+
+2.  **導入 `Stemming` 技術 (`My_RAG/retriever.py`):**
+    *   **目的：** 透過詞幹提取，將英文單詞還原為其基本形式，以提高檢索的召回率，減少因詞形變化導致的匹配失敗。
+    *   **方法：** (此步驟將在更新 README 後執行) 引入 `nltk` 函式庫，並在 `requirements.txt` 中新增相應的依賴。在索引建立和查詢時，使用 `PorterStemmer` 進行詞幹提取。
+
+**綜合觀察：**
+*   此版本旨在分離並評估 `Multi-Query` 和 `Stemming` 對 RAG 效能的獨立貢獻。
+
 ## 🚀 未來工作 (Future Work)
 
 梳理流程
