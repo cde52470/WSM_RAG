@@ -104,13 +104,20 @@ def main(query_path, docs_path, language, output_path):
         original_query_text = query['query']['content']
         qLanguage = query.get("language", language) or "en"
         
-        # --- [EXPERIMENT] Temporarily disabled Multi-Query to test Hybrid Retriever performance ---
-        # 4a. Generate multiple queries (DISABLED)
-        # all_queries = generate_multiple_queries(original_query_text, ollama_client)
+        # --- Multi-Query Enabled for Phase 2 Experiment ---
+        # 4a. Generate multiple queries
+        all_queries = generate_multiple_queries(original_query_text, ollama_client)
         
-        # 4b. Retrieve for the original query only
-        final_chunks = retriever.retrieve(original_query_text, top_k=10) # Using original query
-        # --- [END EXPERIMENT] ---
+        # 4b. Retrieve for all generated queries
+        # The retriever expects a single query. We need to collect results from all queries.
+        retrieved_chunks_list = []
+        for q in all_queries:
+            retrieved_chunks_list.extend(retriever.retrieve(q, top_k=10)) # Retrieve top 10 for each query
+
+        # Deduplicate chunks to avoid redundant processing, though their scores might be different
+        # For this experiment, we'll just combine them and assume the generator handles duplicates.
+        final_chunks = retrieved_chunks_list
+        # --- End Multi-Query Enabled ---
 
         # 5. Generate Answer
         # Use original query for answer generation
