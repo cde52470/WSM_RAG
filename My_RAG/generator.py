@@ -1,5 +1,5 @@
-from ollama import Client
 from pathlib import Path
+import ollama
 import yaml
 
 
@@ -44,10 +44,10 @@ Answer:"""
 
     # CHINESE_prompt
     else:
-        prompt = f"""你是一個謹慎的助理，請只使用下方 context 回答，遵守：
-- 只用 context 內容，沒有就回答「我不知道」。
-- 嚴格比對公司名稱與年份，不要混淆不同公司／年份的數據。
-- 如果 context 提到股息或影響，務必寫出，不要遺漏。
+        prompt = f"""你是一个谨慎的助理，请只使用下方 context 回答，遵守：
+- 只用 context 内容，没有就回答「我不知道」。
+- 严格比对公司名称与年份，不要混淆不同公司／年份的数据。
+- 如果 context 提到股息或影响，务必写出，不要遗漏。
 
 Question: {query}
 Context:
@@ -57,7 +57,7 @@ Answer:
 """
 
     ollama_config = load_ollama_config()
-    client = Client(host=ollama_config["host"])
+    client = ollama.Client(host=ollama_config["host"])
     response = client.generate(model=ollama_config["model"], prompt=prompt)
     return response["response"]
 
