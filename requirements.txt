@@ -5,3 +5,5 @@ ollama
 tqdm
 PyYAML
 nltk
+sentence-transformers
+numpy

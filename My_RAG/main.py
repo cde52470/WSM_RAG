@@ -98,7 +98,7 @@ def main(query_path, docs_path, language, output_path):
         raise ConnectionError("Failed to connect to any Ollama host.")
 
     print("Creating retriever...")
-    retriever = create_retriever(chunks, language, client=ollama_client)
+    retriever = create_retriever(chunks, language)
     
     for query in tqdm(queries, desc="Processing Queries"):
         original_query_text = query['query']['content']
@@ -112,7 +112,7 @@ def main(query_path, docs_path, language, output_path):
         # The retriever expects a single query. We need to collect results from all queries.
         retrieved_chunks_list = []
         for q in all_queries:
-            retrieved_chunks_list.extend(retriever.retrieve(q, top_k=10)) # Retrieve top 10 for each query
+            retrieved_chunks_list.extend(retriever.retrieve(q, top_k=10, use_hyde=False)) # Retrieve top 10 for each query
 
         # Deduplicate chunks to avoid redundant processing, though their scores might be different
         # For this experiment, we'll just combine them and assume the generator handles duplicates.
@@ -121,7 +121,7 @@ def main(query_path, docs_path, language, output_path):
 
         # 5. Generate Answer
         # Use original query for answer generation
-        answer = generate_answer(original_query_text, final_chunks, qLanguage, ollama_client=ollama_client)
+        answer = generate_answer(original_query_text, final_chunks)
 
         if "prediction" not in query:
             query["prediction"] = {}

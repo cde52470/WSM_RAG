@@ -1,59 +1,115 @@
-import os
 from ollama import Client
+from pathlib import Path
+import yaml
+import re
 
+def load_ollama_config() -> dict:
+    configs_folder = Path(__file__).parent.parent / "configs"
+    config_paths = [
+        configs_folder / "config_local.yaml",
+        configs_folder / "config_submit.yaml",
+    ]
+    config_path = None
+    for path in config_paths:
+        if path.exists():
+            config_path = path
+            break
 
-def generate_answer(query, context_chunks, language="en", ollama_client=None):
+    if config_path is None:
+        return {"host": "http://ollama-gateway:11434", "model": "granite4:3b"}
+
+    with open(config_path, "r") as file:
+        config = yaml.safe_load(file)
+
+    return config.get("ollama", {})
+
+def is_contains_chinese(strs):
+    """檢查字串是否包含中文字元"""
+    for _char in strs:
+        if '\u4e00' <= _char <= '\u9fff':
+            return True
+    return False
+
+def _parse_model_output(response_text: str, language: str) -> str:
     """
-    Generates an answer using a concise prompt that asks the LLM to cite sources.
+    解析模型輸出，移除思考過程，只保留最終答案。
     """
-    if ollama_client is None:
-        raise ValueError("Ollama client must be provided.")
+    # 定義要捕捉的標籤
+    tags = ["Answer:", "最終答案：", "Final Answer:", "回答："]
+    
+    # 1. 嘗試尋找分割點
+    content = response_text.strip()
+    for tag in tags:
+        if tag in content:
+            # 取 tag 之後的所有文字
+            content = content.split(tag)[-1].strip()
+            return content
+            
+    # 2. 如果沒找到 tag (模型沒乖乖聽話)，嘗試用換行符號猜測
+    # 通常思考過程長，答案短，或是思考在第一段。
+    # 這裡採取保守策略：如果沒 tag，就回傳全部，避免切錯。
+    return content
 
-    # Number the contexts for citation
-    numbered_contexts = []
-    for idx, chunk in enumerate(context_chunks, start=1):
-        numbered_contexts.append(f"[{idx}] {chunk['page_content']}")
-    context = "\n\n".join(numbered_contexts)
-
-    prompt = (
-        "You are an assistant for question-answering tasks.\n"
-        "You will be given a question and several numbered context snippets.\n"
-        "Your job is to answer the question **only** using the information in the context.\n"
-        "- If the context does not contain enough information, explicitly say that you don't know.\n"
-        "- Keep the main answer within three sentences and be concise.\n"
-        "- After your answer, add one line starting with 'Sources:' and list the ids of the snippets you used, "
-        "for example: 'Sources: [1], [3]'.\n"
-        "Do not fabricate information that is not supported by the context.\n\n"
-        f"Question: {query}\n\n"
-        f"Context:\n{context}\n\n"
-        "Answer:\n"
-    )
-
-    try:
-        model_name = os.getenv("GENERATOR_MODEL", "granite4:3b")
-        response = ollama_client.generate(
-            model=model_name,
-            prompt=prompt,
-            stream=False,
+def generate_answer(query, context_chunks):
+    # 1. 準備 Context
+    context = "\n\n".join([chunk['page_content'] for chunk in context_chunks])
+    
+    # 2. 準備 Prompt (加入 CoT 與格式要求)
+    if is_contains_chinese(query):
+        # 【中文 Prompt：強調推論與格式】
+        prompt = (
+            "你是一個嚴謹的問答助手。請僅根據提供的「參考內容」回答問題。\n"
+            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n\n"
+            "請嚴格遵守以下輸出格式：\n"
+            "思考過程：<請在此簡短分析參考內容與問題的關聯>\n"
+            "最終答案：<請在此給出最終的繁體中文回答，不超過三句話>\n\n"
+            f"參考內容 (Context):\n{context}\n\n"
+            f"使用者問題 (Question): {query}\n"
         )
-        return response.get("response", "No response from model.")
-    except Exception as e:
-        return f"Error using Ollama Python client: {e}"
+    else:
+        # 【英文 Prompt：強調 Reasoning 與 Format】
+        prompt = (
+            "You are a strict assistant. Answer the question based ONLY on the provided context.\n"
+            "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n\n"
+            "Please follow this format strictly:\n"
+            "Thinking: <Briefly analyze the context and reasoning here>\n"
+            "Answer: <Provide the final concise answer here, max 3 sentences>\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question: {query}\n"
+        )
 
+    # 3. 呼叫模型
+    ollama_config = load_ollama_config()
+    # 優先使用 config 設定，若無則 fallback 到預設值
+    host = ollama_config.get("host", "http://localhost:11434")
+    # 建議之後換成 qwen2.5:3b 以獲得更好的中文效果
+    model = "granite4:3b" # 或者保留原本的 "granite4:3b"
+    
+    try:
+        client = Client(host=host)
+        response = client.generate(model=model, prompt=prompt)
+        raw_output = response["response"]
+        
+        # 4. 解析輸出 (只回傳 Answer 部分)
+        final_answer = _parse_model_output(raw_output, "zh" if is_contains_chinese(query) else "en")
+        return final_answer
+        
+    except Exception as e:
+        print(f"Generate Error: {e}")
+        return "Sorry, generation failed."
 
 if __name__ == "__main__":
-    # Simple local test
-    # Ensure OLLAMA_HOST is set or Ollama is running on the default host
-    class MockClient:
-        def generate(self, model, prompt, stream):
-            print("--- Mock Generate Call ---")
-            print(f"Model: {model}")
-            print(f"Prompt:\n{prompt}")
-            return {"response": "This is a mock answer. Sources: [1], [2]"}
-
-    query = "What is the capital of France?"
-    context_chunks = [
-        {"page_content": "France is a country in Europe. Its capital is Paris."},
-        {"page_content": "The Eiffel Tower is located in Paris, the capital city of France."}
+    # 測試程式
+    query_zh = "法國的首都在哪裡？"
+    chunks = [
+        {"page_content": "法國（France），全名法蘭西共和國。"},
+        {"page_content": "巴黎（Paris）是法國的首都及最大都市。"}
     ]
-    print(generate_answer(query, context_chunks, ollama_client=MockClient()))
+    
+    print("Testing Chinese Query...")
+    ans = generate_answer(query_zh, chunks)
+    print(f"Parsed Answer: {ans}")
+    
+    print("\nTesting English Query...")
+    ans_en = generate_answer("What is the capital of France?", chunks)
+    print(f"Parsed Answer: {ans_en}")

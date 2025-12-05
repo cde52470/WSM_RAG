@@ -1,0 +1,12 @@
+﻿*   2d6aadd On lixiang1202_optimize-rag-performance: WIP before pulling esdese-feature-1
+|\  
+| * 0eb7ca1 index on lixiang1202_optimize-rag-performance: d19d26b feat: Enable Multi-Query for phase 2 experiment
+|/  
+* d19d26b feat: Enable Multi-Query for phase 2 experiment
+* 6c4e91d lixiang1202_optimize-rag-performance(1204)實驗
+* d587d14 docs: Add design rationale for online vs offline processing
+* 77e8626 docs: Add To-Do list to Future Work section
+* d275722 docs: Add Mermaid flowchart for RAG workflow
+* 089e55c refactor: Move historical and troubleshooting sections to history.md
+* 74c9f00 fix(docker): Pull all required models in ollama entrypoint   2    3 - Add ollama pull for embeddinggemma:300m and qwen3-embedding:0.6b.   4 - This resolves the 'model not found' errors for embedding models within the Docker      environment.
+* e8bc2d6 fix: Correct English embedding model name to embeddinggemma:300m   2    3 - Update retriever.py to use embeddinggemma:300m.   4 - docs: Correct model name in README and update note.

@@ -1,0 +1,8 @@
+﻿  backup1114_v0                             d272dda [origin/backup1114_v0] feat: Integrate future work into README and refine setup
+  esdese-feature-1                          801bffc [origin/esdese-feature-1] workflowdispatch
+  lixiang1201_2323_optimize-rag-performance 3ce62a5 [origin/lixiang1201_2323_optimize-rag-performance] docs: Update Future Work section in README with detailed plans
+  lixiang1201_Format                        b2e0fbb [origin/lixiang1201_Format] fix: Make OLLAMA_HOST in run.sh flexible
+* lixiang1202_optimize-rag-performance      d19d26b [origin/lixiang1202_optimize-rag-performance] feat: Enable Multi-Query for phase 2 experiment
+  lixiang_1114_recordResults                285773e [origin/lixiang_1114_recordResults] docs: Add third option to 'Future Execution' in README.md
+  main                                      1ec6f2b [origin/main] fix(docker): Resolve ModuleNotFoundError and permission issues for Docker and Conda      environments    2    3 - Add PyYAML to requirements.txt to fix 'ModuleNotFoundError: No module named yaml'    4 - Adjust output paths in run.sh for Conda and run_docker.sh for Docker to ensure correc      file saving    5 - Update My_RAG/utils.py mkdir to include mode=0o777 for better permission handling    6 - ci: Enable manual workflow dispatch in .github/workflows/submit.yml
+  uuuu                                      7cedd36 [origin/uuuu: ahead 3] fix: unpin PyYAML version in requirements.txt to resolve Docker build error

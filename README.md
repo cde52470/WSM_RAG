@@ -181,6 +181,30 @@ docker-compose up --build
 **綜合觀察：**
 *   此版本旨在分離並評估 `Multi-Query` 和 `Stemming` 對 RAG 效能的獨立貢獻。
 
+### esdese-feature-1(1205)
+**目標：** 整合 `esdese-feature-1` 分支的優化，包括智能切分、混合檢索升級與 Chain-of-Thought (CoT) 生成。
+
+**改動內容：**
+
+1.  **智能切分 (`My_RAG/chunker.py`):**
+    *   實作基於句子邊界的切分 (`_split_text_into_sentences`)，避免切斷語意。
+    *   優化 Overlap 處理，確保上下文連貫。
+
+2.  **混合檢索升級 (`My_RAG/retriever.py`):**
+    *   升級為 `HybridRetriever`，結合 BM25 與 Dense Retrieval。
+    *   引入 **RRF (Reciprocal Rank Fusion)** 融合演算法。
+    *   引入 **Cross-Encoder Reranking** (使用 `BAAI/bge-reranker-base`) 提升排序精準度。
+    *   支援 **HyDE** (Hypothetical Document Embeddings) 選項。
+
+3.  **生成優化 (`My_RAG/generator.py`):**
+    *   引入 **Chain-of-Thought (CoT)** Prompt，要求模型輸出「思考過程」與「最終答案」。
+    *   針對中英文設計專屬 Prompt。
+    *   新增 `_parse_model_output` 解析器，從模型輸出中提取最終答案。
+
+4.  **系統整合 (`My_RAG/main.py`):**
+    *   保留 `Multi-Query` 機制，並與新的 `HybridRetriever` 整合。
+    *   更新函式呼叫介面以適配新的模組。
+
 ## 🚀 未來工作 (Future Work)
 
 梳理流程

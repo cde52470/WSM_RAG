@@ -1,6 +1,7 @@
 import jsonlines
 from pathlib import Path
 
+
 def load_jsonl(file_path):
     docs = []
     with jsonlines.open(file_path, 'r') as reader:
