@@ -1,9 +1,0 @@
-﻿git : From github.com:lixiangryan/WSM_RAG
-At line:1 char:1
-+ git pull origin uuuu 2>&1 | Out-File -Encoding utf8 pull_error.txt
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (From github.com:lixiangryan/WSM_RAG:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
- * branch            uuuu       -> FETCH_HEAD
-fatal: refusing to merge unrelated histories
