@@ -205,6 +205,22 @@ docker-compose up --build
     *   保留 `Multi-Query` 機制，並與新的 `HybridRetriever` 整合。
     *   更新函式呼叫介面以適配新的模組。
 
+### uuuu(1205)
+**目標：** 吸收 `uuuu` 分支針對環境穩定性與依賴管理的優化，確保 Docker 與 Conda 環境執行的一致性。
+
+**改動內容：**
+
+1.  **依賴版本鎖定 (`requirements.txt`):**
+    *   明確鎖定關鍵套件版本 (如 `jieba==0.42.1`, `ollama==0.6.1`)，避免因套件自動升級導致的相容性問題。
+    *   修正 `PyYAML` 缺失導致的 Docker 建置錯誤。
+
+2.  **環境與權限修復:**
+    *   **`My_RAG/utils.py`:** 在建立目錄時加入 `mode=0o777` 權限設定，解決 Docker 容器內的寫入權限問題。
+    *   **`run.sh`:** 調整輸出路徑與執行邏輯，確保在不同環境下都能正確儲存預測結果。
+
+3.  **配置管理:**
+    *   新增 `configs/config_submit.yaml`，提供提交時的標準環境設定。
+
 ## 🚀 未來工作 (Future Work)
 
 梳理流程
