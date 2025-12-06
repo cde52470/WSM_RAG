@@ -75,7 +75,7 @@ class HybridRetriever:
         
         # 設定 Embedding 模型
         # 但在程式執行時，會自動檢查模型是否存在
-        self.embed_model = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+        self.embed_model = os.environ.get("EMBED_MODEL", "qwen3-embedding:0.6b")
         self._check_model_availability()
 
     def _check_model_availability(self):
