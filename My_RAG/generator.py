@@ -57,20 +57,27 @@ def generate_answer(query, context_chunks):
     # 2. 準備 Prompt (加入 CoT 與格式要求)
     if is_contains_chinese(query):
         # 【中文 Prompt：強調推論與格式】
+        # 【中文 Prompt：強調推論與格式】
         prompt = (
-            "你是一個嚴謹的問答助手。請僅根據提供的「參考內容」回答問題。\n"
-            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n\n"
-            "請嚴格遵守以下輸出格式：\n"
-            "思考過程：<請在此簡短分析參考內容與問題的關聯>\n"
-            "最終答案：<請在此給出最終的繁體中文回答，不超過三句話>\n\n"
-            f"參考內容 (Context):\n{context}\n\n"
-            f"使用者問題 (Question): {query}\n"
+            "你是一个严谨的问答助手。请仅根据提供的「参考内容」回答问题。\n"
+            "若参考内容中没有答案，请直接说「我不知道」，不可编造。\n\n"
+            "请严格遵守以下指令：\n"
+            "1. 严格比对公司名称与年份，不要混淆不同公司／年份的数据。\n"
+            "2. 如果参考内容提到股息或影响，务必写出，不要遗漏。\n\n"
+            "请严格遵守以下输出格式：\n"
+            "思考过程：<请在此简短分析参考内容与问题的关联>\n"
+            "最终答案：<请在此给出最终的简体中文回答，不超过三句话>\n\n"
+            f"参考内容 (Context):\n{context}\n\n"
+            f"使用者问题 (Question): {query}\n"
         )
     else:
         # 【英文 Prompt：強調 Reasoning 與 Format】
         prompt = (
             "You are a strict assistant. Answer the question based ONLY on the provided context.\n"
             "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n\n"
+            "Please follow these instructions strictly:\n"
+            "1. Verify company names and years exactly match the question; do not mix different entities.\n"
+            "2. If context mentions dividends or their impacts, include them and don't omit available facts.\n\n"
             "Please follow this format strictly:\n"
             "Thinking: <Briefly analyze the context and reasoning here>\n"
             "Answer: <Provide the final concise answer here, max 3 sentences>\n\n"

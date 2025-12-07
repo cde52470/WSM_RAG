@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import jieba
+import re
 from rank_bm25 import BM25Okapi
 from ollama import Client
 from generator import load_ollama_config
@@ -74,6 +75,15 @@ class HybridRetriever:
             return list(jieba.cut(text))
         return text.split()
 
+    def _focus_terms(self, query):
+        """Extract company-like tokens and years to boost exact matches."""
+        # This logic is absorbed from the 'wang' branch to improve entity recall
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9&'\\-\\.]*|\\d{4}", query)
+        lower_tokens = {t.lower() for t in tokens if len(t) > 2}
+        years = {t for t in lower_tokens if t.isdigit()}
+        names = lower_tokens - years
+        return names, years
+
     def _rrf_fusion(self, bm25_indices: List[int], embed_indices: List[int], k: int = 60) -> List[int]:
         """
         Reciprocal Rank Fusion (RRF):
@@ -128,6 +138,21 @@ class HybridRetriever:
         # --- 階段 1: BM25 檢索 ---
         # get_scores 比較快，不要用 get_top_n
         bm25_scores = self.bm25.get_scores(query_tokens)
+        
+        # [Optimization from wang branch]
+        # Light re-ranking: boost exact company/year matches to reduce entity confusion.
+        names, years = self._focus_terms(query)
+        if names or years:
+            for i, chunk in enumerate(self.chunks):
+                text_lower = chunk.get("page_content", "").lower()
+                boost = 0.0
+                if names:
+                    boost += 0.3 * sum(1 for name in names if name in text_lower)
+                if years:
+                    boost += 0.15 * sum(1 for yr in years if yr in text_lower)
+                if boost:
+                    bm25_scores[i] += boost
+        
         # 取得前 N 名的 index
         bm25_top_indices = np.argsort(bm25_scores)[::-1][:self.bm25_top_k]
 
