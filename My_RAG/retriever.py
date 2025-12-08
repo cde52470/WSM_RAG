@@ -3,8 +3,10 @@ import numpy as np
 import jieba
 import re
 from rank_bm25 import BM25Okapi
+from nltk.stem import PorterStemmer
 from ollama import Client
 from generator import load_ollama_config
+from knowledge_graph import SimpleKnowledgeGraph
 
 # 移除原本的 Ollama Client，因為 Rerank 不建議用生成式模型
 try:
@@ -27,6 +29,9 @@ class HybridRetriever:
         use_reranker: bool = True
     ):
         self.language = language
+        # 0. 初始化 Stemmer
+        self.stemmer = PorterStemmer() if language != "zh" else None
+
         # 1. 過濾語言
         self.chunks = [
             c for c in chunks
@@ -62,6 +67,9 @@ class HybridRetriever:
             # 這是一個專門用來評分 (Query, Document) 相關性的模型，速度極快
             self.reranker = CrossEncoder(rerank_model_name)
 
+        # 5. 初始化 Knowledge Graph (NEW)
+        self.kg = SimpleKnowledgeGraph(chunks)
+
         try:
             config = load_ollama_config()
             ollama_host = config.get("host", "http://ollama-gateway:11434")
@@ -73,7 +81,11 @@ class HybridRetriever:
     def _tokenize(self, text: str):
         if self.language == "zh":
             return list(jieba.cut(text))
-        return text.split()
+        # English: Split + Lowercase + Stemming
+        # 這是 lixiang1202_optimize-rag-performance(1208)_part2 的優化：
+        # 將單字還原回詞幹 (e.g., "paying", "pays" -> "pay")，增加檢索召回率
+        tokens = text.split()
+        return [self.stemmer.stem(t.lower()) for t in tokens]
 
     def _focus_terms(self, query):
         """Extract company-like tokens and years to boost exact matches."""
@@ -84,7 +96,7 @@ class HybridRetriever:
         names = lower_tokens - years
         return names, years
 
-    def _rrf_fusion(self, bm25_indices: List[int], embed_indices: List[int], k: int = 60) -> List[int]:
+    def _rrf_fusion(self, bm25_indices: List[int], embed_indices: List[int], kg_indices: List[int], k: int = 60) -> List[int]:
         """
         Reciprocal Rank Fusion (RRF):
         不依賴絕對分數，而是依賴「排名」。解決了 BM25 分數和 Cosine 分數範圍不同的問題。
@@ -99,6 +111,12 @@ class HybridRetriever:
         # 處理 Vector 排名
         for rank, idx in enumerate(embed_indices):
             if idx not in rrf_score: rrf_score[idx] = 0
+            rrf_score[idx] += 1 / (k + rank + 1)
+
+        # 處理 Knowledge Graph 排名
+        for rank, idx in enumerate(kg_indices):
+            if idx not in rrf_score: rrf_score[idx] = 0
+            # KG 的權重可以調整，這裡假設它與其他兩者同等重要
             rrf_score[idx] += 1 / (k + rank + 1)
 
         # 根據 RRF 分數排序，由高到低
@@ -166,15 +184,22 @@ class HybridRetriever:
             similarities = np.dot(self.chunk_embeddings, query_embedding)
             embed_top_indices = np.argsort(similarities)[::-1][:self.embed_top_k]
 
-        # --- 階段 3: 融合 (Hybrid Fusion) ---
-        # 使用 RRF 合併兩種結果，取前 N 個候選人進入 Rerank
-        merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices)
+        # --- 階段 3 (NEW): Knowledge Graph 檢索 ---
+        kg_scores = self.kg.search(query)
+        # Sort by score descending
+        kg_sorted = sorted(kg_scores.items(), key=lambda x: x[1], reverse=True)
+        # Take top K (e.g. same as BM25 top k for fusion pool)
+        kg_top_indices = [idx for idx, score in kg_sorted[:self.bm25_top_k]]
+
+        # --- 階段 4: 融合 (Hybrid Fusion) ---
+        # 使用 RRF 合併三種結果 (BM25, Vector, KG)
+        merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
         
         # 這裡的候選集數量可以稍微多一點，例如取前 50 個給 Reranker
         candidate_indices = merged_indices[:50] 
         candidate_docs = [self.corpus[i] for i in candidate_indices]
 
-        # --- 階段 4: 重排序 (Re-ranking) ---
+        # --- 階段 5: 重排序 (Re-ranking) ---
         if self.reranker:
             # Cross-Encoder 接受 list of pairs: [(query, doc1), (query, doc2), ...]
             pairs = [[query, doc] for doc in candidate_docs]

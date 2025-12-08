@@ -247,7 +247,51 @@ docker-compose up --build
     *   **加權：** 若候選文件包含這些關鍵詞，則在 BM25 原始分數上給予額外加權（公司名稱 +0.3，年份 +0.15）。
     *   **效益：** 這能顯著降低檢索到錯誤公司或錯誤年份文件的機率，這在金融財報問答中至關重要。
 
+### lixiang1202_optimize-rag-performance(1208)
+**目標：** 引入輕量級知識圖譜 (Knowledge Graph) 組件，強化對特定實體 (公司名稱、年份) 的檢索能力，構建「關鍵字 + 語意 + 實體」的三元混合檢索系統。
+
+**改動內容：**
+
+1.  **簡易知識圖譜 (`My_RAG/knowledge_graph.py`):**
+    *   **新增組件：** 實作了一個基於記憶體的 `SimpleKnowledgeGraph`。
+    *   **圖譜結構：** 節點包含「實體 (Entity)」與「文件 (Chunk)」，邊代表實體在文件中的出現。
+    *   **實體抽取：** 自動從文本中識別「年份」 (如 2023) 與「專有名詞」 (如台積電、TSMC)，建立倒排索引圖。
+
+2.  **三元混合檢索 (`My_RAG/retriever.py`):**
+    *   **整合 KG 檢索：** 在檢索流程中加入 KG Search 階段，直接查找包含查詢中實體的文件。
+    *   **升級 RRF 融合：** 將 RRF (Reciprocal Rank Fusion) 演算法擴展為三路融合，同時考慮 BM25 (關鍵字)、Vector (語意) 與 KG (實體) 的排名。
+    *   **效益：** 透過顯式建模實體與文件的關係，彌補了純語意檢索在精確實體匹配上的不足，進一步提升金融財報問答的準確率。
+
 ## 🚀 未來工作 (Future Work)
+
+### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
+**比較對象：** `wang` (Score: ~28.93) vs `lixiang1202_optimize-rag-performance` (Score: ~25.21)
+
+經觀察，雖然 `lixiang` 分支引入了較先進的 CoT (Chain-of-Thought) 與細粒度參考句子篩選，但評分反而低於架構較簡單的 `wang` 分支。推測原因如下，需在未來進行 A/B Testing 驗證：
+
+1.  **Prompt 複雜度與模型能力的權衡 (Complexity vs. Capability):**
+    *   **觀察：** `lixiang` 使用 CoT Prompt，要求模型輸出「思考過程」與「最終答案」。
+    *   **推測：** 使用的小型模型 (`granite4:3b`) 可能難以穩定遵循複雜指令，導致輸出解析失敗 (`_parse_model_output` 風險) 或 Token 資源被思考過程佔用，影響了答案生成的完整性。反觀 `wang` 的 Prompt 簡單直接，模型反而能更穩定地輸出答案。
+
+2.  **參考資料的完整性 (Context Completeness):**
+    *   **觀察：** `lixiang` 嘗試從 Chunk 中篩選「最相關語句」作為 Reference；而 `wang` 直接回傳完整的 Chunk。
+    *   **推測：** 過度激進的句子篩選可能破壞了上下文語意，導致評分模型（Judge）認為答案缺乏佐證 (Hallucination)，即便答案本身是正確的。完整的 Chunk 雖然雜訊較多，但保留了足夠的上下文供驗證。
+
+    *   **效益：** 透過顯式建模實體與文件的關係，彌補了純語意檢索在精確實體匹配上的不足，進一步提升金融財報問答的準確率。
+
+### lixiang1202_optimize-rag-performance(1208)_part2
+**目標：** 在「三元混合檢索」的基礎上，進一步補強英文檢索的召回率（Recall）並提升生成答案的穩定性。
+
+**改動內容：**
+
+1.  **英文詞幹提取 (English Stemming - `My_RAG/retriever.py`):**
+    *   **與 BM25 整合：** 終於實作了之前計畫中的 Stemming 機制。使用 `nltk.PorterStemmer` 對英文查詢與文件進行前處理。
+    *   **效益：** 能夠將不同詞性的單字（如 "paying", "pays", "paid"）還原為同一詞根（"pay"），大幅減少因詞形變化導致的漏檢（Recall miss），這對於英文財報中多變的動詞型態特別有效。
+
+2.  **單樣本提示 (One-Shot Prompting - `My_RAG/generator.py`):**
+    *   **優化 Prompt：** 在原本的 Zero-Shot Prompt 中，插入了一個具體的「問答範例」。
+    *   **範例內容：** 展示了如何根據 Context 提取正確年份和公司數據，並演示了標準的「思考過程 -> 最終答案」輸出與格式。
+    *   **效益：** 透過提供明確的範例（In-Context Learning），引導模型更穩定地遵循輸出格式，並模仿範例中的推理邏輯（如：嚴格比對年份），減少模型幻覺或格式錯誤的機率。
 
 梳理流程
 ---
