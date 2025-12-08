@@ -15,13 +15,11 @@ class SimpleKnowledgeGraph:
 
     def _extract_entities(self, text: str) -> Set[str]:
         """
-        Extracts simple entities (Years, Capitalized Terms/Key Terms) from text.
-        This serves as a heuristic Entity Extraction for financial domains.
+        Extracts strict entities to reduce noise:
+        1. Years (4-digit numbers)
+        2. Capitalized Terms (Potential Proper Nouns like 'TSMC', 'Apple', 'Paris')
         """
         entities = set()
-        
-        # Normalize text
-        # text_lower = text.lower() # We keep casing for extraction logic but normalize for storage if needed
         
         # 1. Extract Years (4-digit numbers)
         # This is crucial for distinguishing financial reports from different periods.
@@ -29,16 +27,26 @@ class SimpleKnowledgeGraph:
         for y in years:
             entities.add(f"Year:{y}")
 
-        # 2. Extract Potential Entities (English)
-        # Matches words starting with letters, allowing for some special chars like & (e.g., AT&T)
-        # We focus on terms that likely represent proper nouns or significant financial terms.
-        # This regex mimics the one used in the 'wang' branch optimization but structured as graph nodes.
-        tokens = re.findall(r"\b[A-Za-z][A-Za-z0-9&'\-\.]*\b", text)
+        # 2. Extract Potential Proper Nouns (Capitalized Words)
+        # We only take words starting with Uppercase to avoid common verbs/nouns (e.g. "revenue", "profit").
+        # While this might miss some entities, it significantly reduces noise in the graph.
+        # Regex: Word boundary + Upper case letter + following letters/numbers/special chars
+        tokens = re.findall(r"\b[A-Z][a-zA-Z0-9&'\-\.]*\b", text)
         
+        # Basic Stopwords list to filter out common capitalized starters or headers
+        stopwords = {
+            "The", "A", "An", "In", "On", "At", "To", "For", "Of", "And", "Or", "But", "With", "By", 
+            "From", "As", "If", "While", "Where", "When", "Then", "It", "This", "That", "These", "Those",
+            "He", "She", "They", "We", "You", "I", "Is", "Are", "Was", "Were", "Be", "Have", "Has", "Had",
+            "Do", "Does", "Did", "Can", "Could", "Will", "Would", "Should", "May", "Might", "Must",
+            "Question", "Answer", "Context", "Note", "Table", "Figure", "Page"
+        }
+
         for t in tokens:
-            # Filter distinct terms (length > 2)
-            if len(t) > 2 and not t.isdigit():
-                 # Use lowercase for case-insensitive matching in the graph
+            # Filter distinct terms (length > 2) and skip stopwords
+            if len(t) > 2 and t not in stopwords and not t.isdigit():
+                 # Use lowercase for case-insensitive matching in the graph storage 
+                 # to match user queries that might be lowercase
                 entities.add(f"Term:{t.lower()}")
 
         return entities

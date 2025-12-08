@@ -262,6 +262,35 @@ docker-compose up --build
     *   **升級 RRF 融合：** 將 RRF (Reciprocal Rank Fusion) 演算法擴展為三路融合，同時考慮 BM25 (關鍵字)、Vector (語意) 與 KG (實體) 的排名。
     *   **效益：** 透過顯式建模實體與文件的關係，彌補了純語意檢索在精確實體匹配上的不足，進一步提升金融財報問答的準確率。
 
+### lixiang1202_optimize-rag-performance(1208)_part2
+**目標：** 在「三元混合檢索」的基礎上，進一步補強英文檢索的召回率 (Recall) 並提升生成答案的穩定性。
+
+**改動內容：**
+
+1.  **英文詞幹提取 (English Stemming - `My_RAG/retriever.py`):**
+    *   **與 BM25 整合：** 終於實作了之前計畫中的 Stemming 機制。使用 `nltk.PorterStemmer` 對英文查詢與文件進行前處理。
+    *   **效益：** 能夠將不同詞性的單字（如 "paying", "pays", "paid"）還原為同一詞根（"pay"），大幅減少因詞形變化導致的漏檢 (Recall miss)，這對於英文財報中多變的動詞型態特別有效。
+
+2.  **單樣本提示 (One-Shot Prompting - `My_RAG/generator.py`):**
+    *   **優化 Prompt：** 在原本的 Zero-Shot Prompt 中，插入了一個具體的「問答範例」。
+    *   **範例內容：** 展示了如何根據 Context 提取正確年份和公司數據，並演示了標準的「思考過程 -> 最終答案」輸出與格式。
+    *   **效益：** 透過提供明確的範例 (In-Context Learning)，引導模型更穩定地遵循輸出格式，並模仿範例中的推理邏輯（如：嚴格比對年份），減少模型幻覺或格式錯誤的機率。
+
+### lixiang1202_optimize-rag-performance(1208)_part3
+**目標：** 修正 Knowledge Graph (KG) 因實體抽取過於寬鬆而導致的「雜訊引入 (Noise Introduction)」問題，提升 KG 的抗干擾能力。
+
+**改動內容：**
+
+1.  **實體抽取嚴格化 (`My_RAG/knowledge_graph.py`):**
+    *   **Stopwords 過濾：** 引入了一份包含常見英文停用詞 (`The`, `And`, `Report`, `Context` 等) 的清單，防止這些高頻虛詞被誤認為實體。
+    *   **限制首字母大寫：** 將正則表達式從 `[A-Za-z]...` 修改為 `[A-Z]...`。現在只抓取**大寫開頭**的單字作為潛在的專有名詞。
+    *   **效益：** 透過這兩項過濾，KG 不會再把 `company`, `revenue`, `year` 這類普通單字當作關聯節點，而是專注於 `TSMC`, `NVIDIA`, `Paris` 等真正的專有名詞。這解決了 KG 引入大量不相關文件導致分數下降的問題。
+
+2.  **擴大重排序候選集 (Widen the Funnel - `My_RAG/retriever.py`):**
+    *   **觀察：** 發現 Retrieval Total Score (Recall) 持續偏低且無進步。經推測，可能是第一階段檢索後的候選名單過小，導致正確答案在進入 Reranker 之前就被過濾掉了。
+    *   **修正：** 將從 RRF 融合後送入 Reranker 的候選文件數量 (`merged_indices`) 從 **50** 提升至 **150**。
+    *   **效益：** 就像撒更大的網，大幅增加了「正確答案」被納入候選池的機率，從而突破 Recall 的瓶頸。強大的 Reranker 因為有機會看到這些文件，才能將它們排到前列。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
@@ -279,19 +308,7 @@ docker-compose up --build
 
     *   **效益：** 透過顯式建模實體與文件的關係，彌補了純語意檢索在精確實體匹配上的不足，進一步提升金融財報問答的準確率。
 
-### lixiang1202_optimize-rag-performance(1208)_part2
-**目標：** 在「三元混合檢索」的基礎上，進一步補強英文檢索的召回率（Recall）並提升生成答案的穩定性。
 
-**改動內容：**
-
-1.  **英文詞幹提取 (English Stemming - `My_RAG/retriever.py`):**
-    *   **與 BM25 整合：** 終於實作了之前計畫中的 Stemming 機制。使用 `nltk.PorterStemmer` 對英文查詢與文件進行前處理。
-    *   **效益：** 能夠將不同詞性的單字（如 "paying", "pays", "paid"）還原為同一詞根（"pay"），大幅減少因詞形變化導致的漏檢（Recall miss），這對於英文財報中多變的動詞型態特別有效。
-
-2.  **單樣本提示 (One-Shot Prompting - `My_RAG/generator.py`):**
-    *   **優化 Prompt：** 在原本的 Zero-Shot Prompt 中，插入了一個具體的「問答範例」。
-    *   **範例內容：** 展示了如何根據 Context 提取正確年份和公司數據，並演示了標準的「思考過程 -> 最終答案」輸出與格式。
-    *   **效益：** 透過提供明確的範例（In-Context Learning），引導模型更穩定地遵循輸出格式，並模仿範例中的推理邏輯（如：嚴格比對年份），減少模型幻覺或格式錯誤的機率。
 
 梳理流程
 ---

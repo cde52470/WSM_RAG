@@ -195,8 +195,8 @@ class HybridRetriever:
         # 使用 RRF 合併三種結果 (BM25, Vector, KG)
         merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
         
-        # 這裡的候選集數量可以稍微多一點，例如取前 50 個給 Reranker
-        candidate_indices = merged_indices[:50] 
+        # 這裡的候選集數量可以稍微多一點，例如取前 150 個給 Reranker，提升召回率 (Widen the Funnel)
+        candidate_indices = merged_indices[:150] 
         candidate_docs = [self.corpus[i] for i in candidate_indices]
 
         # --- 階段 5: 重排序 (Re-ranking) ---
