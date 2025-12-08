@@ -121,7 +121,7 @@ def main(query_path, docs_path, language, output_path):
 
         # 5. Generate Answer
         # Use original query for answer generation
-        answer = generate_answer(original_query_text, final_chunks)
+        answer = generate_answer(original_query_text, final_chunks, ollama_client)
 
         if "prediction" not in query:
             query["prediction"] = {}

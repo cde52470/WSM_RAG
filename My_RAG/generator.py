@@ -50,13 +50,12 @@ def _parse_model_output(response_text: str, language: str) -> str:
     # 這裡採取保守策略：如果沒 tag，就回傳全部，避免切錯。
     return content
 
-def generate_answer(query, context_chunks):
+def generate_answer(query, context_chunks, ollama_client):
     # 1. 準備 Context
     context = "\n\n".join([chunk['page_content'] for chunk in context_chunks])
     
     # 2. 準備 Prompt (加入 CoT 與格式要求)
     if is_contains_chinese(query):
-        # 【中文 Prompt：強調推論與格式】
         # 【中文 Prompt：強調推論與格式】
         prompt = (
             "你是一个严谨的问答助手。请仅根据提供的「参考内容」回答问题。\n"
@@ -98,15 +97,13 @@ def generate_answer(query, context_chunks):
         )
 
     # 3. 呼叫模型
-    ollama_config = load_ollama_config()
     # 優先使用 config 設定，若無則 fallback 到預設值
-    host = ollama_config.get("host", "http://localhost:11434")
-    # 建議之後換成 qwen2.5:3b 以獲得更好的中文效果
+    ollama_config = load_ollama_config()
     model = "granite4:3b" # 或者保留原本的 "granite4:3b"
     
     try:
-        client = Client(host=host)
-        response = client.generate(model=model, prompt=prompt)
+        # 直接使用傳入的 ollama_client
+        response = ollama_client.generate(model=model, prompt=prompt)
         raw_output = response["response"]
         
         # 4. 解析輸出 (只回傳 Answer 部分)
