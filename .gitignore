@@ -1,5 +1,6 @@
 # Virtual environment
 .venv
+wsm/
 
 # IDE specific files
 .vscode

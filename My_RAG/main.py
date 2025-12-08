@@ -33,18 +33,21 @@ def main(query_path, docs_path, language, output_path):
     for query in tqdm(queries, desc="Processing Queries"):
         # 4. Retrieve relevant chunks
         query_text = query["query"]["content"]
-        qLanguage = query.get("language", language) or "en"
+        # qLanguage = query.get("language", language) or "en"
         # print(f"\nRetrieving chunks for query: '{query_text}'")
         retrieved_chunks = retriever.retrieve(query_text, top_k=10)
         # print(f"Retrieved {len(retrieved_chunks)} chunks.")
 
         # 5. Generate Answer
         # print("Generating answer...")
-        answer = generate_answer(query_text, retrieved_chunks, qLanguage)
-        prediction = query.setdefault("prediction", {})
-        prediction["content"] = answer
-        prediction["references"] = [chunk["page_content"] for chunk in retrieved_chunks]
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        # answer = generate_answer(query_text, retrieved_chunks, qLanguage)
+        answer = generate_answer(query_text, retrieved_chunks)
+        query["prediction"]["content"] = answer
+        query["prediction"]["references"] = [retrieved_chunks[0]['page_content']]
+        # prediction = query.setdefault("prediction", {})
+        # prediction["content"] = answer
+        # prediction["references"] = [chunk["page_content"] for chunk in retrieved_chunks]
+    # os.makedirs(os.path.dirname(output_path), exist_ok=True)
     save_jsonl(output_path, queries)
     print("Predictions saved at '{}'".format(output_path))
 
