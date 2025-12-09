@@ -1,167 +1,234 @@
-from rank_bm25 import BM25Okapi
-import jieba
 import os
-import math
-import numpy as np
 import re
+import numpy as np
+import jieba
+from rank_bm25 import BM25Okapi
+import ollama
+# ==========================================
+# 1. Configuration: 中英文調整
+# ==========================================
+class RAGConfig:
+    SETTINGS = {
+        "zh": {
+            "vector_model": "qwen2.5:0.5b",       # 中文模型
+            "bm25_tokenizer": "jieba",            # 中文斷詞
+            "weights": {"bm25": 0.4, "vec": 0.6}, # 中文語意較依賴向量
+        },
+        "en": {
+            "vector_model": "nomic-embed-text",   # 英文模型
+            "bm25_tokenizer": "space",
+            "weights": {"bm25": 0.5, "vec": 0.5}, # 英文關鍵字通常很準
+        }
+    }
 
+    @classmethod
+    def get(cls, lang, key):
+        cfg = cls.SETTINGS.get(lang, cls.SETTINGS["en"])
+        return cfg.get(key)
 
-class BM25Retriever:
+# ==========================================
+# 2. 檢索模型 (Retrieval Models)
+# ==========================================
+
+class SparseRetriever:
+    """
+    模型 1: BM25
+    """
+    def __init__(self, chunks, language):
+        self.corpus = [chunk["page_content"] for chunk in chunks]
+        self.language = language
+        self.tokenizer_type = RAGConfig.get(language, "bm25_tokenizer")
+        
+        # 建立索引
+        if self.tokenizer_type == "jieba":
+            self.tokenized_corpus = [list(jieba.cut(doc)) for doc in self.corpus]
+        else:
+            self.tokenized_corpus = [doc.lower().split(" ") for doc in self.corpus]
+            
+        self.bm25 = BM25Okapi(self.tokenized_corpus)
+
+    def search(self, query, top_k=50):
+        # 處理 Query
+        if self.tokenizer_type == "jieba":
+            tokenized_query = list(jieba.cut(query))
+        else:
+            tokenized_query = query.lower().split(" ")
+
+        scores = self.bm25.get_scores(tokenized_query)
+        
+        # 格式化輸出: List of (index, score)
+        results = []
+        for idx, score in enumerate(scores):
+            # 過濾掉分數極低或為 0 的結果
+            if score > 1e-5: 
+                results.append((idx, score))
+        
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
+
+class DenseRetriever:
+    """
+    模型 2: Vector Search (符合作業建議的第二種模型)
+    """
+    def __init__(self, chunks, language):
+        self.chunks = chunks
+        self.language = language
+        self.model = RAGConfig.get(language, "vector_model")
+        self.embeddings = []
+        
+        # 預先計算所有文件的向量 (Indexing)
+        self._build_index()
+
+    def _get_embedding(self, text):
+        if not ollama: return np.zeros(768)
+        try:
+            # 使用 Ollama API
+            resp = ollama.embeddings(model=self.model, prompt=text)
+            return np.array(resp["embedding"])
+        except Exception as e:
+            print(f"[Error] Embedding failed: {e}")
+            return np.zeros(768)
+
+    def _build_index(self):
+        print(f"[{self.language}] Vector Indexing start...")
+        for chunk in self.chunks:
+            vec = self._get_embedding(chunk["page_content"])
+            self.embeddings.append(vec)
+        self.embeddings = np.array(self.embeddings)
+
+    def search(self, query, top_k=50):
+        query_vec = self._get_embedding(query)
+        if query_vec is None or len(self.embeddings) == 0:
+            return []
+
+        # Cosine Similarity 計算
+        # Formula: (A . B) / (|A| * |B|)
+        q_norm = np.linalg.norm(query_vec)
+        d_norms = np.linalg.norm(self.embeddings, axis=1)
+        
+        # 避免除以 0
+        d_norms[d_norms == 0] = 1e-10
+        if q_norm == 0: q_norm = 1e-10
+
+        dot_products = np.dot(self.embeddings, query_vec)
+        similarities = dot_products / (q_norm * d_norms)
+
+        results = [(i, float(score)) for i, score in enumerate(similarities)]
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results[:top_k]
+
+# ==========================================
+# 3. 進階重排序 (Advanced Re-ranking)
+#    對應作業：Advanced Tasks / Classifier
+# ==========================================
+
+class RelevanceClassifier:
+    """
+    這是一個 Classifier 的框架。
+    目前實作：基於規則 (Heuristic) 的分類器。
+    進階實作：你可以訓練一個 Logistic Regression 或使用 Cross-Encoder 來取代這裡的邏輯。
+    """
+    def predict_score(self, query, chunk_content, original_score):
+        boost = 0.0
+        
+        # Feature 1: 實體匹配 (Entity Matching)
+        # 這是作業提到的 "Advanced Task" 的一種簡單實現
+        query_terms = set(re.findall(r"\w+", query.lower()))
+        chunk_terms = set(re.findall(r"\w+", chunk_content.lower()))
+        
+        # 找出年份 (如 2023, 112學年) - 這在學校作業中通常是考點
+        years = re.findall(r"\d{4}", query)
+        for year in years:
+            if year in chunk_content:
+                boost += 0.2  # 年份匹配給予高權重
+        
+        # Feature 2: 關鍵詞覆蓋率 (Term Overlap)
+        overlap = len(query_terms & chunk_terms)
+        boost += overlap * 0.05
+
+        return original_score + boost
+
+# ==========================================
+# 4. 主流程 (Main Pipeline)
+#    對應作業：Fusion
+# ==========================================
+
+class EnsembleRetriever:
     def __init__(self, chunks, language="en"):
         self.chunks = chunks
         self.language = language
-        #建立語料庫
-        self.corpus = [chunk["page_content"] for chunk in chunks]
-
-        if language == "zh":
-            self._tokenizer = jieba.Tokenizer()
-            self.tokenized_corpus = [
-                list(self._tokenizer.cut(doc)) for doc in self.corpus
-            ]
-        else:
-            self._tokenizer = None
-            self.tokenized_corpus = [doc.split(" ") for doc in self.corpus]
-        self.bm25 = BM25Okapi(self.tokenized_corpus)
-
-    def _focus_terms(self, query):
-        """Extract company-like tokens and years to boost exact matches."""
-        tokens = re.findall(r"[A-Za-z][A-Za-z0-9&'\\-\\.]*|\\d{4}", query)
-        lower_tokens = {t.lower() for t in tokens if len(t) > 2}
-        years = {t for t in lower_tokens if t.isdigit()}
-        names = lower_tokens - years
-        return names, years
-
-    def retrieve_candidates(self, query, top_k=50):
-        if self.language == "zh":
-            tokenized_query = list(self._tokenizer.cut(query))
-        else:
-            tokenized_query = query.split(" ")
-
-        #取得分數
-        scores = self.bm25.get_scores(tokenized_query)
-        names, years = self._focus_terms(query)
-
-        # Light re-ranking: boost exact company/year matches to reduce entity confusion.
-        for i, chunk in enumerate(self.chunks):
-            text_lower = chunk["page_content"].lower()
-            boost = 0.0
-            if names:
-                boost += 0.3 * sum(1 for name in names if name in text_lower)
-            if years:
-                boost += 0.15 * sum(1 for yr in years if yr in text_lower)
-            if boost:
-                scores[i] += boost
-
-        #取出分數最高的TOP-k個索引
-        top_k = min(top_k, len(scores))
-        # 使用 numpy 高效排序
-        top_indices = np.argpartition(scores, -top_k)[-top_k:]
-        #按分數高低排列
-        top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
-
-        #回傳完整的 chunk 物件列表
-        return [self.chunks[i] for i in top_indices]
-
-#Hybrid Retriever (結合 Sparse + Dense)
-class HybridRetriever:
-    """
-    1. 先用 BM25 快速篩選出 50 篇相關文章 (Sparse Retrieval)。
-    2. 再用 Embedding 模型計算這 50 篇與 Query 的語意相似度 (Dense Retrieval)。
-    3. 重新排序，回傳最終的 top_k。
-    """
-    def __init__(self, chunks, language="en"):
-        self.language = language
-        self.bm25 = BM25Retriever(chunks, language)
+        self.weights = RAGConfig.get(language, "weights")
         
-        # 設定 Embedding 模型
-        # 但在程式執行時，會自動檢查模型是否存在
-        self.embed_model = os.environ.get("EMBED_MODEL", "qwen3-embedding:0.6b")
-        self._check_model_availability()
+        # 初始化模型
+        self.bm25_retriever = SparseRetriever(chunks, language)
+        self.vector_retriever = DenseRetriever(chunks, language)
+        self.classifier = RelevanceClassifier()
 
-    def _check_model_availability(self):
-        """檢查 Ollama 裡是否有指定的模型，沒有的話自動切換，避免 Crash。"""
-        try:
-            resp = self.client.list()
-            models = [m['name'].split(':')[0] for m in resp.get('models', [])]
-            target = self.embed_model.split(':')[0]
-            
-            if target not in models:
-                print(f"[Warning] Model {self.embed_model} not found.")
-                # 嘗試尋找替代品
-                for m in models:
-                    if "embed" in m or "bert" in m:
-                        self.embed_model = m
-                        print(f"[Fallback] Switching to {self.embed_model}")
-                        return
-                # 最糟情況：隨便抓一個
-                if models:
-                    self.embed_model = models[0]
-                    print(f"[Fallback] Using first available model: {self.embed_model}")
-        except Exception as e:
-            print(f"[Error] Ollama connection failed: {e}")
-
-    def _get_embedding(self, text):
-        """呼叫 Ollama 取得向量"""
-        try:
-            # 呼叫 API
-            response = self.client.embed(model=self.embed_model, input=text)
-            # 處理回傳格式 (可能是 object 或是 dict)
-            if isinstance(response, dict):
-                return response.get("embeddings", [[]])[0]
+    def _normalize(self, results):
+        """
+        Normalization: 將分數映射到 [0, 1]
+        BM25: 0 ~ inf -> 0 ~ 1
+        Vector: -1 ~ 1 -> 0 ~ 1 (雖然通常是 0~1)
+        """
+        if not results: return {}
+        
+        scores = [r[1] for r in results]
+        min_s, max_s = min(scores), max(scores)
+        
+        norm_map = {}
+        for idx, score in results:
+            if max_s - min_s == 0:
+                norm_map[idx] = 1.0 if max_s > 0 else 0.0
             else:
-                return response.embeddings[0]
-        except Exception as e:
-            print(f"[Error] Embedding failed: {e}")
-            return None
-
-    def _cosine_similarity(self, vec1, vec2):
-        """計算餘弦相似度"""
-        if not vec1 or not vec2:
-            return 0.0
-        vec1 = np.array(vec1)
-        vec2 = np.array(vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        return np.dot(vec1, vec2) / (norm1 * norm2)
+                norm_map[idx] = (score - min_s) / (max_s - min_s)
+        return norm_map
 
     def retrieve(self, query, top_k=10):
-        # 步驟 1: BM25 廣度搜尋 (取出 50 篇候選)
-        # 為什麼是 50？因為我們希望 Recall (召回率) 夠高，不要漏掉潛在答案
-        candidates = self.bm25.retrieve_candidates(query, top_k=50)
-        
-        # 步驟 2: 計算 Query 的向量
-        query_vec = self._get_embedding(query)
-        
-        # 如果 Embedding 失敗 (例如 Ollama 掛了)，直接回傳 BM25 的結果 (保命機制)
-        if query_vec is None:
-            return candidates[:top_k]
+        # 1. 雙路召回 (Retrieval)
+        # 為了融合效果，這裡取較多的候選集 (top_k * 3)
+        candidates_k = top_k * 3
+        bm25_res = self.bm25_retriever.search(query, top_k=candidates_k)
+        vec_res = self.vector_retriever.search(query, top_k=candidates_k)
 
-        # 步驟 3: 對候選文章進行 Rerank (重排序)
-        reranked_results = []
-        for chunk in candidates:
-            # 這裡我們即時計算 chunk 的向量
-            # 因為只有 50 篇，速度會很快，不需要預先算好存起來
-            chunk_vec = self._get_embedding(chunk["page_content"])
+        # 2. 分數歸一化 (Normalization)
+        bm25_norm = self._normalize(bm25_res)
+        vec_norm = self._normalize(vec_res)
+
+        # 3. 加權融合 (Weighted Sum Fusion)
+        all_indices = set(bm25_norm.keys()) | set(vec_norm.keys())
+        merged_results = []
+        
+        alpha = self.weights["vec"]
+        beta = self.weights["bm25"]
+
+        for idx in all_indices:
+            s_bm25 = bm25_norm.get(idx, 0.0)
+            s_vec = vec_norm.get(idx, 0.0)
             
-            if chunk_vec:
-                score = self._cosine_similarity(query_vec, chunk_vec)
-                reranked_results.append((score, chunk))
-            else:
-                # 如果算不出向量，給個 0 分放在最後
-                reranked_results.append((0.0, chunk))
+            # 融合公式
+            fusion_score = (beta * s_bm25) + (alpha * s_vec)
+            
+            merged_results.append({
+                "index": idx,
+                "score": fusion_score,
+                "chunk": self.chunks[idx]
+            })
 
-        # 步驟 4: 依照相似度分數由高到低排序
-        reranked_results.sort(key=lambda x: x[0], reverse=True)
+        # 4. Re-ranking (使用 Classifier / Heuristic)
+        # 這是作業的 Advanced Task 部分
+        for item in merged_results:
+            new_score = self.classifier.predict_score(
+                query, 
+                item["chunk"]["page_content"], 
+                item["score"]
+            )
+            item["score"] = new_score
+
+        # 5. 最終排序
+        merged_results.sort(key=lambda x: x["score"], reverse=True)
         
-        # 只回傳 chunk 本體 (去掉分數)
-        final_chunks = [item[1] for item in reranked_results[:top_k]]
-        
-        return final_chunks
-
-
+        # 回傳 Top-K 的原始 chunk 內容
+        return [item["chunk"] for item in merged_results[:top_k]]
 
 def create_retriever(chunks, language):
-    """Creates a BM25 retriever from document chunks."""
-    return BM25Retriever(chunks, language)
+    return EnsembleRetriever(chunks, language)
