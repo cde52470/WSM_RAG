@@ -5,3 +5,5 @@ pydantic
 PyYAML
 rank_bm25
 tqdm
+langchain
+langchain_text_splitters
