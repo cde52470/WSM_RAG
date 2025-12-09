@@ -113,19 +113,36 @@ def _parse_model_output(response_text: str, language: str) -> str:
     解析模型輸出，移除思考過程，只保留最終答案。
     """
     # 定義要捕捉的標籤
-    tags = ["Answer:", "最終答案：", "Final Answer:", "回答："]
+    tags = ["Final Answer:", "Final Answer", 
+        "最終答案：", "最終答案:", "最終答案",
+        "Answer:", "Answer",
+        "回答：", "回答:", "回答",
+        "答案：", "答案:", "答案",
+        "答：","答:","答"]
     
-    # 1. 嘗試尋找分割點
+    # 2. 第一階段：尋找並切割思考過程
     content = response_text.strip()
     for tag in tags:
         if tag in content:
-            # 取 tag 之後的所有文字
+            # 取 tag 之後的內容
             content = content.split(tag)[-1].strip()
+            # 找到一個就跳出，避免重複切
             return content
-            
-    # 2. 如果沒找到 tag (模型沒乖乖聽話)，嘗試用換行符號猜測
-    # 通常思考過程長，答案短，或是思考在第一段。
-    # 這裡採取保守策略：如果沒 tag，就回傳全部，避免切錯。
+    # 3. 第二階段：二次清洗 (處理 "最終答案：答案：" 這種連著出現的情況)
+    # 有時候模型切完後，開頭可能還殘留 "答案：" 或 "Answer:"
+    # 我們用正則表達式或簡單的迴圈來清理開頭的雜訊
+    prefixes_to_clean = ["答案：", "答案:", "Answer:", "Answer", ":", "："]     
+    
+    # 持續檢查開頭，直到乾淨為止
+    while True:
+        original_content = content
+        for prefix in prefixes_to_clean:
+            if content.startswith(prefix):
+                content = content[len(prefix):].strip()
+        # 如果這一輪沒有變動，代表已經乾淨了
+        if content == original_content:
+            break
+
     return content
 
 def generate_answer(query, context_chunks):
@@ -137,9 +154,9 @@ def generate_answer(query, context_chunks):
         # 【中文 Prompt：強調推論與格式】
         prompt = (
             "你是一個嚴謹的問答助手。請僅根據提供的「參考內容」回答問題。\n"
-            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n\n"
+            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n"
             "嚴格比對公司名稱與年份，不要混淆不同公司／年份的數據\n"
-            "如果 context 提到股息或影響，務必寫出，不要遺漏\n"
+            "如果 context 提到股息或影響，務必寫出，不要遺漏\n\n"
             "請嚴格遵守以下輸出格式：\n"
             "思考過程：<請在此簡短分析參考內容與問題的關聯>\n"
             "最終答案：<請在此給出最終的繁體中文回答，不超過三句話>\n\n"
@@ -150,9 +167,9 @@ def generate_answer(query, context_chunks):
         # 【英文 Prompt：強調 Reasoning 與 Format】
         prompt = (
             "You are a strict assistant. Answer the question based ONLY on the provided context.\n"
-            "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n\n"
+            "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n"
             "Verify company names and years exactly match the question; do not mix different entities.\n"
-            "If context mentions dividends or their impacts, include them and don't omit available facts.\n"
+            "If context mentions dividends or their impacts, include them and don't omit available facts.\n\n"
             "Please follow this format strictly:\n"
             "Thinking: <Briefly analyze the context and reasoning here>\n"
             "Answer: <Provide the final concise answer here, max 3 sentences>\n\n"
