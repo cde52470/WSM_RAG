@@ -134,9 +134,6 @@ class RelevanceClassifier:
     目前實作：基於規則 (Heuristic) 的分類器。
     進階實作：你可以訓練一個 Logistic Regression 或使用 Cross-Encoder 來取代這裡的邏輯。
     """
-    def __init__(self, language= "en"):
-        self.language
-        pass
     def predict_score(self, query, chunk_content, original_score):
         boost = 0.0
         
@@ -156,61 +153,6 @@ class RelevanceClassifier:
         boost += overlap * 0.05
 
         return original_score + boost
-    
-    def predict_score_with_llm(self, query, chunk_content, original_score):
-        """
-        使用 Granite 模型來進行重排序評分
-        """
-        if not ollama: 
-            return original_score # 如果沒有 ollama，直接回傳原分數
-
-        # 1. 建構 Prompt (這是 EDA 知識萃取的部分)
-        # 我們把「年份」等特徵直接寫在 Prompt 裡提醒 LLM 注意
-        prompt = f"""
-        Task: You are a relevance judge. 
-        Query: {query}
-        Document: {chunk_content}
-        
-        Instruction: 
-        1. Analyze if the Document directly answers the Query.
-        2. Pay special attention to EXACT MATCHES of years (e.g., 2023, 2024) and entity names.
-        3. Assign a relevance score from 0.0 to 1.0.
-        4. Output ONLY the number, nothing else.
-        
-        Score:
-        """
-
-        try:
-            # 2. 呼叫 LLM (使用跟 Generation 一樣的模型 granite4:3b)
-            # 注意：這裡的 model 名稱要跟作業要求一致
-            response = ollama.generate(model='granite4:3b', prompt=prompt)
-            output = response['response'].strip()
-            
-            # 3. 解析分數 (從字串抓出數字)
-            # 找小數點或整數
-            match = re.search(r"0\.\d+|1\.0|\d+", output)
-            if match:
-                llm_score = float(match.group())
-                # 確保分數在 0~1 之間
-                llm_score = min(max(llm_score, 0.0), 1.0)
-                
-                # 4. 融合策略 (Fusion Strategy)
-                # 你可以選擇完全相信 LLM，或是跟原本的分數加權
-                # 建議：原本分數佔 30%，LLM 佔 70%
-                final_score = (original_score * 0.3) + (llm_score * 0.7)
-                return final_score
-            else:
-                return original_score # 解析失敗，維持原判
-
-        except Exception as e:
-            print(f"[Rerank Error] {e}")
-            return original_score
-
-    # 為了相容原本的介面，我們可以保留舊函式，或在 retrieve 裡改呼叫上面的
-    def predict_score(self, query, chunk_content, original_score):
-        # 這裡決定你要用「規則」還是「LLM」
-        # 建議：為了速度，只對前 10 名用 LLM，後面的用規則
-        return self.predict_score_with_llm(query, chunk_content, original_score)
 
 # ==========================================
 # 4. 主流程 (Main Pipeline)
@@ -248,7 +190,7 @@ class EnsembleRetriever:
                 norm_map[idx] = (score - min_s) / (max_s - min_s)
         return norm_map
 
-    def retrieve(self, query, top_k=20):
+    def retrieve(self, query, top_k=30):
         # 1. 雙路召回 (Retrieval)
         # 為了融合效果，這裡取較多的候選集 (top_k * 3)
         candidates_k = top_k * 3
@@ -267,7 +209,7 @@ class EnsembleRetriever:
         beta = self.weights["bm25"]
 
         for idx in all_indices:
-            #如果另一方沒入選，是另一方得0分
+            #
             s_bm25 = bm25_norm.get(idx, 0.0)
             s_vec = vec_norm.get(idx, 0.0)
             
@@ -293,32 +235,8 @@ class EnsembleRetriever:
         # 5. 最終排序
         merged_results.sort(key=lambda x: x["score"], reverse=True)
         
-        # 6.【策略】只對前 10 名進行 LLM Reranking
-        top_n_rerank = 10 
-        
-        final_results = []
-        
-        for i, item in enumerate(merged_results):
-            if i < top_n_rerank:
-                # 前 10 名：使用 LLM 深度檢查
-                new_score = self.classifier.predict_score_with_llm(
-                    query, 
-                    item["chunk"]["page_content"], 
-                    item["score"]
-                )
-                item["score"] = new_score
-            else:
-                # 10 名以後：維持原分數 (或是只用簡單規則加分)
-                # 這樣就不會浪費時間算那些根本不會贏的文章
-                pass
-            
-            final_results.append(item)
-
-        # 5. 最終排序
-        final_results.sort(key=lambda x: x["score"], reverse=True)
-        
         # 回傳 Top-K 的原始 chunk 內容
-        return [item["chunk"] for item in final_results[:top_k]]
+        return [item["chunk"] for item in merged_results[:top_k]]
 
 def create_retriever(chunks, language):
     return EnsembleRetriever(chunks, language)
