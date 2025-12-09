@@ -1,86 +1,94 @@
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import re
+
+# origin
 
 
-def chunk_documents(docs, language="en", chunk_size=800, chunk_overlap=300):
+def chunk_documents(docs, language, chunk_size=800, chunk_overlap=300):
     """
-    Split documents into overlapping chunks using LangChain's RecursiveCharacterTextSplitter.
-    Optimized for both English and Chinese (Simplified/Traditional).
-
-    Args:
-        docs (list): List of document dictionaries with 'content' and 'metadata'.
-        language (str): 'en' or 'zh'.
-        chunk_size (int): Target size of each chunk.
-        chunk_overlap (int): Number of characters to overlap.
-
-    Returns:
-        list: List of chunk dictionaries with 'page_content' and 'metadata'.
+    Split documents into overlapping chunks on sentence-like boundaries.
+    This improved version uses a more robust sentence splitting and a sentence-aware overlap logic.
     """
     chunks = []
+    language = str(language).lower().strip()
+    chunk_overlap = max(
+        0, min(chunk_overlap, chunk_size)
+    )  # 確保 overlap：不能小於 0，且不能大於區塊總大小 (size)
 
-    # Normalize language input
-    target_language = str(language).lower().strip()
-
-    # Define separators based on language
-    # LangChain tries to split by the first separator, if the chunk is still too big,
-    # it moves to the next separator, and so on.
-    if target_language == "zh":
-        separators = [
-            "\n\n",  # Paragraphs (Strongest)
-            "\n",  # Line breaks
-            "。",  # Period
-            "！",  # Exclamation mark
-            "？",  # Question mark
-            "；",  # Semicolon (Important for lists)
-            "：",  # Colon (Important for structured data like "Name: Value")
-            "、",  # Enumeration comma (Important for "1、First item")
-            "，",  # Comma (Weakest sentence break)
-            " ",  # Spaces (Rare in Chinese but possible)
-            "",  # Character by character (Last resort)
-        ]
+    # 根據語言選擇適當的分句模式
+    if language == "en":
+        pattern = r"(\n\n|(?<=[.!?])\s+)"
     else:
-        # Default to English standard separators
-        separators = ["\n\n", "\n", ".", "!", "?", ";", ",", " ", ""]
-
-    # Initialize the splitter
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        separators=separators,
-        keep_separator=True,  # Keep punctuation at the end of the sentence
-        strip_whitespace=True,  # Clean up extra whitespace
-    )
+        pattern = r"(\n\n|(?<=[。！？；]))"
 
     for doc in docs:
-        # Validate content
         text = doc.get("content")
-        if not isinstance(text, str) or not text.strip():
+        if (
+            not isinstance(text, str) or not text.strip()
+        ):  # if text is None or not a string or empty
             continue
 
-        # Check document language matches target language
-        # (Defaulting to 'en' if not specified in doc)
         doc_lang = doc.get("language", "en").lower().strip()
-        if doc_lang != target_language:
+        if doc_lang != language:
             continue
 
-        # Prepare metadata (remove content to avoid duplication in memory)
-        base_metadata = doc.copy()
-        base_metadata.pop("content", None)
+        # Split text by pattern, keep delimiters, and clean up.
+        parts = re.split(pattern, text)
+        sentences = []  # store sentences after splitting
+        for i in range(
+            0, len(parts), 2
+        ):  # parts[i] is content, parts[i+1] is delimiter that's why step by 2
+            sentence = parts[i] + (parts[i + 1] if i + 1 < len(parts) else "")
+            if sentence.strip():
+                sentences.append(sentence)
 
-        # Create chunks using LangChain
-        # create_documents accepts list of texts and list of metadatas
-        lc_docs = text_splitter.create_documents(
-            texts=[text], metadatas=[base_metadata]
-        )
+        if not sentences:
+            continue
 
-        # Convert back to the project's standard dictionary format
-        for i, lc_doc in enumerate(lc_docs):
-            chunk_metadata = lc_doc.metadata.copy()
-            # Add chunk index for reference
-            chunk_metadata["chunk_index"] = i
+        chunk_index = 0
+        current_chunk_sentences = []
+        current_len = 0
 
-            chunks.append(
-                {"page_content": lc_doc.page_content, "metadata": chunk_metadata}
-            )
+        for sentence in sentences:
+            sent_len = len(sentence)
+
+            if current_chunk_sentences and current_len + sent_len > chunk_size:
+                chunk_text = "".join(
+                    current_chunk_sentences
+                ).strip()  # combine 2 of them for a new one
+                if chunk_text:
+                    chunk_metadata = doc.copy()
+                    chunk_metadata.pop("content", None)
+                    chunk_metadata["chunk_index"] = chunk_index
+                    chunks.append(
+                        {"page_content": chunk_text, "metadata": chunk_metadata}
+                    )
+                    chunk_index += 1
+
+                # Sentence-aware overlap
+                overlap_sents = []
+                overlap_len = 0
+                for head_of_next_round in reversed(current_chunk_sentences):
+                    if overlap_len < chunk_overlap:
+                        overlap_sents.insert(0, head_of_next_round)
+                        overlap_len += len(head_of_next_round)
+                    else:
+                        break
+
+                # The new chunk starts with the overlap
+                current_chunk_sentences = overlap_sents
+                current_len = overlap_len
+
+            # Add current sentence to the chunk-in-progress
+            current_chunk_sentences.append(sentence)
+            current_len += len(sentence)
+
+        # Add the final chunk if any sentences are left
+        if current_chunk_sentences:
+            chunk_text = "".join(current_chunk_sentences).strip()
+            if chunk_text:
+                chunk_metadata = doc.copy()
+                chunk_metadata.pop("content", None)
+                chunk_metadata["chunk_index"] = chunk_index
+                chunks.append({"page_content": chunk_text, "metadata": chunk_metadata})
 
     return chunks
