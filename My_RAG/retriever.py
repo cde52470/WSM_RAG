@@ -4,6 +4,7 @@ import os
 import math
 import numpy as np
 import re
+from .generator import get_ollama_client
 
 
 class BM25Retriever:
@@ -74,17 +75,15 @@ class HybridRetriever:
     def __init__(self, chunks, language="en"):
         self.language = language
         self.bm25 = BM25Retriever(chunks, language)
-
-        # 設定 Embedding 模型
-        # 但在程式執行時，會自動檢查模型是否存在
-        self.embed_model = os.environ.get("EMBED_MODEL", "qwen3-embedding:0.6b")
+        self.client = get_ollama_client()
+        self.embed_model = "nomic-embed-text"
         self._check_model_availability()
 
     def _check_model_availability(self):
         """檢查 Ollama 裡是否有指定的模型，沒有的話自動切換，避免 Crash。"""
         try:
             resp = self.client.list()
-            models = [m["name"].split(":")[0] for m in resp.get("models", [])]
+            models = [m.model.split(":")[0] for m in resp.models]
             target = self.embed_model.split(":")[0]
 
             if target not in models:
@@ -164,5 +163,5 @@ class HybridRetriever:
 
 
 def create_retriever(chunks, language):
-    """Creates a BM25 retriever from document chunks."""
-    return BM25Retriever(chunks, language)
+    """Creates a Hybrid retriever from document chunks."""
+    return HybridRetriever(chunks, language)

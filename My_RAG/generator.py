@@ -129,12 +129,12 @@ def _parse_model_output(response_text: str, language: str) -> str:
     return content
 
 
-def generate_answer(query, context_chunks):
+def generate_answer(query, context_chunks, language="en"):
     # 1. 準備 Context
     context = "\n\n".join([chunk["page_content"] for chunk in context_chunks])
 
     # 2. 準備 Prompt (加入 CoT 與格式要求)
-    if is_contains_chinese(query):
+    if language == "zh":
         # 【中文 Prompt：強調推論與格式】
         prompt = (
             "你是一個嚴謹的問答助手。請僅根據提供的「參考內容」回答問題。\n"
@@ -169,8 +169,7 @@ def generate_answer(query, context_chunks):
         response = client.generate(model=model, prompt=prompt)
         raw_output = response["response"]
 
-        lang = "zh" if is_contains_chinese(query) else "en"
-        final_answer = _parse_model_output(raw_output, lang)
+        final_answer = _parse_model_output(raw_output, language)
         return final_answer
 
     except Exception as e:

@@ -1,55 +1,52 @@
 import os
 from tqdm import tqdm
-from utils import load_jsonl, save_jsonl
-from chunker import chunk_documents
-from retriever import create_retriever
-from generator import generate_answer
+from .utils import load_jsonl, save_jsonl
+from .chunker import chunk_documents
+from .retriever import create_retriever
+from .generator import generate_answer
 import argparse
 
 
-def main(query_path, docs_path, language, output_path):
-    # 1. Load Data
-    print("Loading documents...")
-    docs_for_chunking = load_jsonl(docs_path)
-    queries = load_jsonl(query_path)
-    print(f"Loaded {len(docs_for_chunking)} documents.")
-    print(f"Loaded {len(queries)} queries.")
+class RAGPipeline:
+    def __init__(self, docs_path, language):
+        print("Loading documents...")
+        self.docs_for_chunking = load_jsonl(docs_path)
+        print(f"Loaded {len(self.docs_for_chunking)} documents.")
 
-    # 2. Chunk Documents
-    print("Chunking documents...")
-    chunks = chunk_documents(docs_for_chunking, language)
-    if len(chunks) == 0:
-        print(
-            f"Error: No chunks created! Please check if your document language matches input language '{language}'."
-        )
-        return
-    print(f"Created {len(chunks)} chunks.")
+        print("Chunking documents...")
+        self.chunks = chunk_documents(self.docs_for_chunking, language)
+        if len(self.chunks) == 0:
+            raise ValueError(
+                f"Error: No chunks created! Please check if your document language matches input language '{language}'."
+            )
+        print(f"Created {len(self.chunks)} chunks.")
 
-    # 3. Create Retriever
-    print("Creating retriever...")
-    retriever = create_retriever(chunks, language)
-    print("Retriever created successfully.")
+        print("Creating retriever...")
+        self.retriever = create_retriever(self.chunks, language)
+        print("Retriever created successfully.")
+        self.language = language
 
-    for query in tqdm(queries, desc="Processing Queries"):
-        # 4. Retrieve relevant chunks
-        query_text = query["query"]["content"]
-        qLanguage = query.get("language", language) or "en"
-        # print(f"\nRetrieving chunks for query: '{query_text}'")
-        retrieved_chunks = retriever.retrieve(query_text, top_k=10)
-        # print(f"Retrieved {len(retrieved_chunks)} chunks.")
+    def run(self, query_path, output_path):
+        queries = load_jsonl(query_path)
+        print(f"Loaded {len(queries)} queries.")
 
-        # 5. Generate Answer
-        # print("Generating answer...")
-        answer = generate_answer(query_text, retrieved_chunks, qLanguage)
-        prediction = query.setdefault("prediction", {})
-        prediction["content"] = answer
-        prediction["references"] = [chunk["page_content"] for chunk in retrieved_chunks]
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    save_jsonl(output_path, queries)
-    print("Predictions saved at '{}'".format(output_path))
+        for query in tqdm(queries, desc="Processing Queries"):
+            query_text = query["query"]["content"]
+            qLanguage = query.get("language", self.language) or "en"
+            
+            retrieved_chunks = self.retriever.retrieve(query_text, top_k=10)
+            
+            answer = generate_answer(query_text, retrieved_chunks, qLanguage)
+            prediction = query.setdefault("prediction", {})
+            prediction["content"] = answer
+            prediction["references"] = [chunk["page_content"] for chunk in retrieved_chunks]
+            
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        save_jsonl(output_path, queries)
+        print("Predictions saved at '{}'".format(output_path))
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query_path", help="Path to the query file")
     parser.add_argument("--docs_path", help="Path to the documents file")
@@ -59,4 +56,13 @@ if __name__ == "__main__":
     )
     parser.add_argument("--output", help="Path to the output file")
     args = parser.parse_args()
-    main(args.query_path, args.docs_path, args.language, args.output)
+
+    try:
+        pipeline = RAGPipeline(args.docs_path, args.language)
+        pipeline.run(args.query_path, args.output)
+    except ValueError as e:
+        print(e)
+
+
+if __name__ == "__main__":
+    main()

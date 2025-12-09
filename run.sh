@@ -17,7 +17,7 @@ run_results() {
     local language=$1
 
     log "[INFO] Running inference for language: ${language}"
-    python ./My_RAG/main.py \
+    python -m My_RAG.main \
         --query_path ./data/queries_show/queries_${language}.jsonl \
         --docs_path ./data/dragonball_docs.jsonl \
         --language ${language} \

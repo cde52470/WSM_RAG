@@ -6,4 +6,9 @@ PyYAML
 rank_bm25
 tqdm
 langchain
-langchain_text_splitters
+nltk
+rouge
+rouge_chinese
+openai
+numpy
+pysbd
