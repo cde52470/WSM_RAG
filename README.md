@@ -51,6 +51,14 @@ docker-compose up --build
    docker-compose up --build --force-recreate --abort-on-container-exit
    ```
 
+4. **手動獨立執行評分 (Manual Evaluation):**
+   如果你只想對現有的 `predictions/` 結果重新進行評分 (使用 `rageval`)，而不想重跑整個 RAG 生成過程，可以進入容器或在本地環境執行：
+   ```bash
+   bash rageval/evaluation/run_evaluation.sh
+   ```
+   這會讀取 `predictions/*.jsonl`，使用 `granite4:3b` 重新計算分數，並將結果輸出至 `results/final_result.json`。
+   > **注意：** 評分需要 `ground_truth` 欄位。如果您的預測檔案中缺少此欄位 (例如 Test Set)，該筆資料將會被自動跳過不計分。
+
 
 
 
@@ -312,6 +320,21 @@ docker-compose up --build
         *   **檢測機制：** 自動判斷文本語言。
         *   **實體抽取：** 若為中文，專門提取 `nt` (機構)、`nr` (人名)、`ns` (地名) 與 `eng` (英文)；同時過濾「公司」、「營收」等高頻虛詞。
     *   **效益：** 讓 KG 正式「看懂」中文實體（如「台積電」、「鴻海」），使 RAG 在中英文雙語環境下的表現達到一致的高水準。
+
+### lixiang1202_optimize-rag-performance(1209)
+**目標：** 進一步擴展 Knowledge Graph 的中文語意覆蓋率，從單純的「專有名詞檢索」升級為「關鍵概念檢索」。
+
+**改動內容：**
+
+1.  **擴大實體擷取範圍 (Concept Extraction - `My_RAG/knowledge_graph.py`):**
+    *   **觀察：** 僅擷取 `nt` (機構) 等專有名詞會漏掉財報中重要的財務概念（如「晶圓」、「存貨」、「股利」），這些詞在 jieba 中常被標記為普通名詞 (`n`) 或名動詞 (`vn`)。
+    *   **修正：** 將中文實體擷取的詞性過濾範圍擴大，納入 `n` 與 `vn`。
+    *   **配套措施：** 大幅擴充中文 Stopwords 清單（加入「金額」、「說明」、「合計」等 40+ 個高頻虛詞），防止因為引入普通名詞而導致索引爆炸或雜訊過多。
+    *   **效益：** 讓 KG 能夠輔助檢索包含特定財務概念的文件，提升對非實體類問題的回答能力。
+
+2.  **Prompt 繁體化 (Traditional Chinese Prompt - `My_RAG/generator.py`):**
+    *   **優化：** 將 CoT (Chain-of-Thought) 的 System Prompt 與 User Prompt 從簡體中文改回繁體中文。
+    *   **理由：** 經 `esdese` 實驗驗證，對於繁體中文的財報資料，使用繁體 Prompt 能顯著提升模型對細節的理解與回答的準確性。
 
 ## 🚀 未來工作 (Future Work)
 

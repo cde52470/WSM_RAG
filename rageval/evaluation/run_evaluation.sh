@@ -1,15 +1,25 @@
 #!/bin/bash
+cd "$(dirname "$0")" || exit
 
 # Parameters
 NUM_WORKERS=5 # the number of workers to use for parallel processing for evaluation
 LANGUAGE="auto" # the language of the input data, en or zh
-INPUT_BASE_URL="./data/"
-USE_MODEL="gpt-4o"
-OUTPUT_BASE_URL="./results/intermediate_results/"
-export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
-export BASE_URL="" # if none, set to empty string
+# Original Configuration (Commented out)
+# INPUT_BASE_URL="./data/"
+# USE_MODEL="gpt-4o"
+# OUTPUT_BASE_URL="./result/intermediate_result/"
+# export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+# export BASE_URL="" # if none, set to empty string
 # Input files and output file list 
-INPUT_FILES=("example_finance_en_gpt-4o.jsonl") # file name of the input data
+# INPUT_FILES=("example_finance_en_gpt-4o.jsonl") # file name of the input data
+
+# --- WSM RAG Custom Configuration ---
+INPUT_BASE_URL="../../predictions/"
+USE_MODEL="granite4:3b"
+OUTPUT_BASE_URL="../../results/intermediate_results/"
+export OPENAI_API_KEY="ollama"
+export BASE_URL="http://ollama:11434/v1"
+INPUT_FILES=("predictions_zh.jsonl" "predictions_en.jsonl")
 KEYPOINT_VERSION="v2" # default version of the paper
 
 # List of metrics to process
@@ -77,6 +87,6 @@ done
 
 echo "All files and metrics processed."
 
-python process_intermediate.py
+python process_intermediate.py --input_dir "$OUTPUT_BASE_URL" --output_dir "../../results/"
 
-echo "Intermediate results processed. Results are stored in ./results/final_results.jsonl"
+echo "Intermediate results processed. Results are stored in ../../results/final_result.json"

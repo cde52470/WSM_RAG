@@ -39,15 +39,23 @@ class SimpleKnowledgeGraph:
         # 2. Chinese Entity Extraction
         if self._is_contains_chinese(text):
             # Use jieba POS tagging to extract specific entity types
-            # nt: Organization, nr: Person, ns: Location, eng: English
+            # nt: Organization, nr: Person, ns: Location, eng: English, n: Noun, vn: Verbal Noun
             words = pseg.cut(text)
-            valid_pos = {'nt', 'nr', 'ns', 'eng', 'nz'} # nz: other proper nouns
+            valid_pos = {'nt', 'nr', 'ns', 'eng', 'nz', 'n', 'vn'} 
             
-            # Simple Chinese Stopwords (mostly to filter query noise)
-            cn_stopwords = {"公司", "營收", "年報", "報告", "什麼", "多少", "為何", "如何"}
+            # Expanded Chinese Stopwords to filter generic nouns
+            cn_stopwords = {
+                "公司", "營收", "年報", "報告", "什麼", "多少", "為何", "如何",
+                "金額", "單位", "新台幣", "部分", "情形", "年度", "權益", "影響", 
+                "價值", "用途", "項目", "內容", "備註", "說明", "合計", "總計",
+                "包含", "包括", "相關", "目前", "表示", "認為", "可能", "以及", 
+                "除了", "之外", "因為", "所以", "如果", "但是", "可以", "能夠",
+                "千元", "百分比", "附註", "詳信", "資訊", "資料", "表格", "我們"
+            }
             
             for word, flag in words:
-                if (flag in valid_pos or (is_query and flag in ['n', 'x'])) and len(word) > 1:
+                # For Query, we accept 'x' (unknown) as well just in case
+                if (flag in valid_pos or (is_query and flag in ['x'])) and len(word) > 1:
                      if word not in cn_stopwords:
                         entities.add(f"Term:{word.lower()}")
             

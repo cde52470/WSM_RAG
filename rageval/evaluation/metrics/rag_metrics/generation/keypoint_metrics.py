@@ -524,7 +524,7 @@ class KEYPOINT_METRICS:
         # 初始化任何必要的属性
         self.client = OpenAI(
             api_key="ollama",
-            base_url="http://ollama:11434/v1"
+            base_url="http://localhost:11434/v1"
         )
         self.use_openai = use_openai
         self.model = model
