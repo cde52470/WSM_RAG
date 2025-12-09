@@ -5,22 +5,23 @@ import jieba
 from rank_bm25 import BM25Okapi
 import ollama
 # ==========================================
-# 1. Configuration: 中英文調整
+# 1. Dense DenseRetriever Configuration: 中英文調整
 # ==========================================
 class RAGConfig:
     SETTINGS = {
         "zh": {
             "vector_model": "qwen2.5:0.5b",       # 中文模型
-            "bm25_tokenizer": "jieba",            # 中文斷詞
-            "weights": {"bm25": 0.4, "vec": 0.6}, # 中文語意較依賴向量
+            "bm25_tokenizer": "jieba",            
+            "weights": {"bm25": 0.4, "vec": 0.6}, 
         },
         "en": {
             "vector_model": "nomic-embed-text",   # 英文模型
             "bm25_tokenizer": "space",
-            "weights": {"bm25": 0.5, "vec": 0.5}, # 英文關鍵字通常很準
+            "weights": {"bm25": 0.5, "vec": 0.5}, 
         }
     }
 
+    #避免傳入未知語言（傳入例外語言視爲英文）
     @classmethod
     def get(cls, lang, key):
         cfg = cls.SETTINGS.get(lang, cls.SETTINGS["en"])
@@ -32,9 +33,10 @@ class RAGConfig:
 
 class SparseRetriever:
     """
-    模型 1: BM25
+    BM25
     """
     def __init__(self, chunks, language):
+        #"page_content"抓出來
         self.corpus = [chunk["page_content"] for chunk in chunks]
         self.language = language
         self.tokenizer_type = RAGConfig.get(language, "bm25_tokenizer")
@@ -76,10 +78,11 @@ class DenseRetriever:
         self.model = RAGConfig.get(language, "vector_model")
         self.embeddings = []
         
-        # 預先計算所有文件的向量 (Indexing)
+        # 程式剛開始跑，先花時間把所有文件轉換成向量存起來 (Indexing)
         self._build_index()
 
     def _get_embedding(self, text):
+        #檢查Ollama
         if not ollama: return np.zeros(768)
         try:
             # 使用 Ollama API
@@ -94,16 +97,20 @@ class DenseRetriever:
         for chunk in self.chunks:
             vec = self._get_embedding(chunk["page_content"])
             self.embeddings.append(vec)
+        #將矩陣轉換成array
         self.embeddings = np.array(self.embeddings)
 
     def search(self, query, top_k=50):
         query_vec = self._get_embedding(query)
+
+        #檢查是否轉換失敗或資料庫是空的
         if query_vec is None or len(self.embeddings) == 0:
             return []
 
         # Cosine Similarity 計算
-        # Formula: (A . B) / (|A| * |B|)
+        #query向量的長度（｜A｜）
         q_norm = np.linalg.norm(query_vec)
+        #所有文章向量的長度（｜B｜）
         d_norms = np.linalg.norm(self.embeddings, axis=1)
         
         # 避免除以 0
@@ -118,8 +125,7 @@ class DenseRetriever:
         return results[:top_k]
 
 # ==========================================
-# 3. 進階重排序 (Advanced Re-ranking)
-#    對應作業：Advanced Tasks / Classifier
+# 3. Re-ranking
 # ==========================================
 
 class RelevanceClassifier:
@@ -128,6 +134,9 @@ class RelevanceClassifier:
     目前實作：基於規則 (Heuristic) 的分類器。
     進階實作：你可以訓練一個 Logistic Regression 或使用 Cross-Encoder 來取代這裡的邏輯。
     """
+    def __init__(self, language= "en"):
+        self.language
+        pass
     def predict_score(self, query, chunk_content, original_score):
         boost = 0.0
         
@@ -136,7 +145,7 @@ class RelevanceClassifier:
         query_terms = set(re.findall(r"\w+", query.lower()))
         chunk_terms = set(re.findall(r"\w+", chunk_content.lower()))
         
-        # 找出年份 (如 2023, 112學年) - 這在學校作業中通常是考點
+        # 找出年份 (如 2023, 112學年)
         years = re.findall(r"\d{4}", query)
         for year in years:
             if year in chunk_content:
@@ -147,6 +156,61 @@ class RelevanceClassifier:
         boost += overlap * 0.05
 
         return original_score + boost
+    
+    def predict_score_with_llm(self, query, chunk_content, original_score):
+        """
+        使用 Granite 模型來進行重排序評分
+        """
+        if not ollama: 
+            return original_score # 如果沒有 ollama，直接回傳原分數
+
+        # 1. 建構 Prompt (這是 EDA 知識萃取的部分)
+        # 我們把「年份」等特徵直接寫在 Prompt 裡提醒 LLM 注意
+        prompt = f"""
+        Task: You are a relevance judge. 
+        Query: {query}
+        Document: {chunk_content}
+        
+        Instruction: 
+        1. Analyze if the Document directly answers the Query.
+        2. Pay special attention to EXACT MATCHES of years (e.g., 2023, 2024) and entity names.
+        3. Assign a relevance score from 0.0 to 1.0.
+        4. Output ONLY the number, nothing else.
+        
+        Score:
+        """
+
+        try:
+            # 2. 呼叫 LLM (使用跟 Generation 一樣的模型 granite4:3b)
+            # 注意：這裡的 model 名稱要跟作業要求一致
+            response = ollama.generate(model='granite4:3b', prompt=prompt)
+            output = response['response'].strip()
+            
+            # 3. 解析分數 (從字串抓出數字)
+            # 找小數點或整數
+            match = re.search(r"0\.\d+|1\.0|\d+", output)
+            if match:
+                llm_score = float(match.group())
+                # 確保分數在 0~1 之間
+                llm_score = min(max(llm_score, 0.0), 1.0)
+                
+                # 4. 融合策略 (Fusion Strategy)
+                # 你可以選擇完全相信 LLM，或是跟原本的分數加權
+                # 建議：原本分數佔 30%，LLM 佔 70%
+                final_score = (original_score * 0.3) + (llm_score * 0.7)
+                return final_score
+            else:
+                return original_score # 解析失敗，維持原判
+
+        except Exception as e:
+            print(f"[Rerank Error] {e}")
+            return original_score
+
+    # 為了相容原本的介面，我們可以保留舊函式，或在 retrieve 裡改呼叫上面的
+    def predict_score(self, query, chunk_content, original_score):
+        # 這裡決定你要用「規則」還是「LLM」
+        # 建議：為了速度，只對前 10 名用 LLM，後面的用規則
+        return self.predict_score_with_llm(query, chunk_content, original_score)
 
 # ==========================================
 # 4. 主流程 (Main Pipeline)
@@ -168,7 +232,7 @@ class EnsembleRetriever:
         """
         Normalization: 將分數映射到 [0, 1]
         BM25: 0 ~ inf -> 0 ~ 1
-        Vector: -1 ~ 1 -> 0 ~ 1 (雖然通常是 0~1)
+        Vector: -1 ~ 1 -> 0 ~ 1
         """
         if not results: return {}
         
@@ -178,12 +242,13 @@ class EnsembleRetriever:
         norm_map = {}
         for idx, score in results:
             if max_s - min_s == 0:
+                #避免除0
                 norm_map[idx] = 1.0 if max_s > 0 else 0.0
             else:
                 norm_map[idx] = (score - min_s) / (max_s - min_s)
         return norm_map
 
-    def retrieve(self, query, top_k=10):
+    def retrieve(self, query, top_k=20):
         # 1. 雙路召回 (Retrieval)
         # 為了融合效果，這裡取較多的候選集 (top_k * 3)
         candidates_k = top_k * 3
@@ -202,6 +267,7 @@ class EnsembleRetriever:
         beta = self.weights["bm25"]
 
         for idx in all_indices:
+            #如果另一方沒入選，是另一方得0分
             s_bm25 = bm25_norm.get(idx, 0.0)
             s_vec = vec_norm.get(idx, 0.0)
             
@@ -227,8 +293,32 @@ class EnsembleRetriever:
         # 5. 最終排序
         merged_results.sort(key=lambda x: x["score"], reverse=True)
         
+        # 6.【策略】只對前 10 名進行 LLM Reranking
+        top_n_rerank = 10 
+        
+        final_results = []
+        
+        for i, item in enumerate(merged_results):
+            if i < top_n_rerank:
+                # 前 10 名：使用 LLM 深度檢查
+                new_score = self.classifier.predict_score_with_llm(
+                    query, 
+                    item["chunk"]["page_content"], 
+                    item["score"]
+                )
+                item["score"] = new_score
+            else:
+                # 10 名以後：維持原分數 (或是只用簡單規則加分)
+                # 這樣就不會浪費時間算那些根本不會贏的文章
+                pass
+            
+            final_results.append(item)
+
+        # 5. 最終排序
+        final_results.sort(key=lambda x: x["score"], reverse=True)
+        
         # 回傳 Top-K 的原始 chunk 內容
-        return [item["chunk"] for item in merged_results[:top_k]]
+        return [item["chunk"] for item in final_results[:top_k]]
 
 def create_retriever(chunks, language):
     return EnsembleRetriever(chunks, language)
