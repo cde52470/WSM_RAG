@@ -98,7 +98,7 @@ def main(query_path, docs_path, language, output_path):
         raise ConnectionError("Failed to connect to any Ollama host.")
 
     print("Creating retriever...")
-    retriever = create_retriever(chunks, language)
+    retriever = create_retriever(chunks, language, index_path="kg_index.json")
     
     for query in tqdm(queries, desc="Processing Queries"):
         original_query_text = query['query']['content']

@@ -376,7 +376,30 @@ docker-compose up --build
 **決策：** **不予採用**。
 **理由：** 雖然該策略節省了預先建立索引的空間，但在 Query 階段需要即時呼叫 50 次 Embedding API，延遲過高。且我們目前的 Hybrid Retriever (BM25 + Pre-computed Vector + KG + RRF) 在召回率與效能上皆優於該方案，故維持現有架構。
 
-### lixiang1202_optimize-rag-performance(1210)_part2
+### lixiang1202_optimize-rag-performance(1210)_part2_Pre-computed-KG
+為了加速初始化過程並允許手動檢查 Knowledge Graph (KG)：
+1.  安裝建置依賴：`pip install pandas tqdm`
+2.  執行建置腳本：`python scripts/build_kg_index.py`
+3.  這將在根目錄生成 `kg_index.json`。
+4.  **重要**：請務必 Commit 並 Push 此檔案以作為「小抄 (Cheat Sheet)」使用：
+   ```bash
+   git add kg_index.json
+   git commit -m "chore: add pre-computed knowledge graph index"
+   git push origin lixiang1202_optimize-rag-performance
+   ```
+5.  RAG Pipeline 在執行時若發現此檔案存在，將會自動載入。
+
+## Change Log
+- **lixiang1202_optimize-rag-performance(1210)_part2_Pre-computed-KG**:
+    - 實作「小抄戰略 (Cheat Sheet Strategy)」：預先計算 Knowledge Graph 並存為 `kg_index.json` 以便快速載入。
+    - 新增 `scripts/build_kg_index.py` 用於離線生成索引 (支援 Pandas + Regex + LLM 增強)。
+    - **重大修正 (Critical Fix)**：修正 `knowledge_graph.py` 中的年份提取 Regex (舊版只抓到了前綴 "20" 或 "19")。
+    - 更新 `retriever.py` 與 `main.py` 以支援讀取外部 `index_path`。
+
+- **lixiang1202_optimize-rag-performance(1210)_Parameter-Tuning**:
+    - Adjusted parameters: `num_ctx=8192` (from 16k), `temperature=0.6`.
+    - 2nd optimization wave based on manual testing.
+
 **目標：** 修正前次參數調整導致的分數下降問題，尋找 Context Window 與 Creative 的最佳平衡。
 
 **改動內容：**
@@ -389,12 +412,8 @@ docker-compose up --build
 
 ## 🚀 未來工作 (Future Work)
 
-### Pre-computed KG (小抄戰略) - Planned
-**目標：** 在提交前先在本機對 dataset 跑完 Entity Extraction，生成 KG Index 檔案 (如 `kg_index.json` 或 `triples.csv`)，隨代碼一同提交。
-**效益：**
-1.  **省時：** 避免在評測環境 (考場) 浪費寶貴的 runtime 時間重建 KG。
-2.  **高品質：** 可在外部先進行人工或模型校對 (Data Cleaning)，確保實體提取準確無誤。
-3.  **客製化：** 可針對特定資料集 (如 Dragonball) 預先載入專用辭典 (User Dictionary)，大幅提升特殊名詞的抽取率，不必依賴通用分詞器。
+
+
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
 **比較對象：** `wang` (Score: ~28.93) vs `lixiang1202_optimize-rag-performance` (Score: ~25.21)

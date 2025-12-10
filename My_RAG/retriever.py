@@ -26,7 +26,8 @@ class HybridRetriever:
         # rerank_model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2", # 推薦的輕量級 Reranker
         rerank_model_name: str = "BAAI/bge-reranker-base", # 將預設模型換成支援中英雙語的 BAAI/bge-reranker-base
         embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-        use_reranker: bool = True
+        use_reranker: bool = True,
+        index_path: Optional[str] = None
     ):
         self.language = language
         # 0. 初始化 Stemmer
@@ -68,7 +69,7 @@ class HybridRetriever:
             self.reranker = CrossEncoder(rerank_model_name)
 
         # 5. 初始化 Knowledge Graph (NEW)
-        self.kg = SimpleKnowledgeGraph(chunks)
+        self.kg = SimpleKnowledgeGraph(chunks, index_path=index_path)
 
         try:
             config = load_ollama_config()
@@ -218,5 +219,6 @@ class HybridRetriever:
         return [self.chunks[idx] for idx in final_indices]
 
 # 使用範例
-def create_retriever(chunks, language="en"):
-    return HybridRetriever(chunks, language=language)
+# 使用範例
+def create_retriever(chunks, language="en", index_path=None):
+    return HybridRetriever(chunks, language=language, index_path=index_path)

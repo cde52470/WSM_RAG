@@ -1,18 +1,74 @@
+import json
+import os
 import re
 import jieba.posseg as pseg
 from collections import defaultdict
-from typing import List, Dict, Set, Any
+from typing import List, Dict, Set, Any, Optional
 
 class SimpleKnowledgeGraph:
     """
     A lightweight Knowledge Graph implementation using an inverted index structure.
     Nodes are Entities (Terms, Years) and Documents (Chunks).
     Edges represent the occurrence of an Entity in a Chunk.
+    Supports saving/loading the index to/from a JSON file (Pre-computed KG).
     """
-    def __init__(self, chunks: List[Dict[str, Any]]):
+    def __init__(self, chunks: List[Dict[str, Any]], index_path: Optional[str] = None):
         self.chunks = chunks
         self.entity_map = defaultdict(set) # Entity -> Set[ChunkIndex]
-        self._build_graph()
+        
+        # Try to load pre-computed index if path is provided and exists
+        index_loaded = False
+        if index_path and os.path.exists(index_path):
+            print(f"[KG] Loading pre-computed index from {index_path}...")
+            if self.load(index_path):
+                index_loaded = True
+
+        if not index_loaded:
+            print("[KG] Building graph from scratch (No valid index found)...")
+            self._build_graph()
+
+    def save(self, path: str):
+        """Saves the entity_map to a JSON file."""
+        # Convert sets to lists for JSON serialization
+        serializable_map = {k: list(v) for k, v in self.entity_map.items()}
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(serializable_map, f, ensure_ascii=False)
+            print(f"[KG] Index saved to {path}")
+        except Exception as e:
+            print(f"[KG] Error saving index: {e}")
+
+    def load(self, path: str) -> bool:
+        """Loads the entity_map from a JSON file. Returns True if successful and valid."""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                loaded_map = json.load(f)
+            
+            # Convert lists back to sets and Validate
+            temp_map = defaultdict(set)
+            max_chunk_idx = -1
+            
+            for k, v in loaded_map.items():
+                chunk_indices = set(v)
+                if chunk_indices:
+                    max_idx = max(chunk_indices)
+                    if max_idx > max_chunk_idx:
+                        max_chunk_idx = max_idx
+                temp_map[k] = chunk_indices
+            
+            # VALIDATION: Check if index matches current chunks
+            if max_chunk_idx >= len(self.chunks):
+                print(f"[KG] WARNING: Index mismatch! Index refers to chunk {max_chunk_idx}, but we only have {len(self.chunks)} chunks.")
+                print("[KG] Discarding pre-computed index and falling back to runtime build.")
+                return False
+                
+            self.entity_map = temp_map
+            print(f"[KG] Successfully loaded {len(self.entity_map)} entities. Index is valid.")
+            return True
+            
+        except Exception as e:
+            print(f"[KG] Error loading index: {e}, falling back to build from scratch.")
+            return False
 
     def _is_contains_chinese(self, text: str) -> bool:
         """Check if text contains Chinese characters."""
@@ -32,7 +88,8 @@ class SimpleKnowledgeGraph:
         entities = set()
         
         # 1. Extract Years (4-digit numbers) - Works for both languages
-        years = re.findall(r"\b(19|20)\d{2}\b", text)
+        # Fix: Use non-capturing group for prefix or capture full match
+        years = re.findall(r"\b(?:19|20)\d{2}\b", text)
         for y in years:
             entities.add(f"Year:{y}")
 
