@@ -41,7 +41,7 @@ def chunk_documents(
     docs: List[Dict[str, Any]],
     language: Optional[str] = None,
     chunk_size: int = 1000,
-    chunk_overlap: int = 200,
+    chunk_overlap: int = 300,
 ) -> List[Dict[str, Any]]:
     """
     優化版的切分函數：基於句子邊界進行切分，避免切斷語意。

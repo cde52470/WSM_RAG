@@ -362,6 +362,15 @@ docker-compose up --build
         *   解決了在 Docker 容器內可能連不到 Host Ollama 的問題，系統會自動尋找可用的通道。
         *   程式碼與 `uuuu` 分支的優良架構對齊，方便未來維護。
 
+### esdese(12100540)
+**目標：** 優化文件切分策略，增加段落間的重疊率以提升語意連貫性。
+
+**改動內容：**
+
+1.  **Chunk Overlap 調整 (`My_RAG/chunker.py`):**
+    *   **改動：** 將 `chunk_overlap` 從預設的 200 提升至 **300** (在 `chunk_size` 維持 1000 的情況下)。
+    *   **理由：** 參考 `esdese` 分支的實驗數據，較高的重疊率 (High Overlap) 有助於避免關鍵資訊（如跨句子的財務數據指涉）在切分時被截斷，確保每個 Chunk 都包含足夠的上下文供模型理解。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
