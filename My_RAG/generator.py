@@ -168,9 +168,9 @@ def generate_answer(query, context_chunks, ollama_client=None):
             prompt=prompt,
             stream=False,
             options={
-                "num_ctx": 16384,    # 擴大 Context Window 以容納更多檢索內容 (16k)
+                "num_ctx": 8192,     # 改回 8k (16k 導致小模型注意力渙散，分數下降)
                 "num_predict": 512,  # 增加生成長度，避免回答被截斷
-                "temperature": 0.1,  # 低溫模式，減少幻覺
+                "temperature": 0.6,  # 中性偏高溫度，增加回答多樣性與自然度
             }
         )
         raw_output = response["response"]

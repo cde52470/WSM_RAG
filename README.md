@@ -376,6 +376,17 @@ docker-compose up --build
 **決策：** **不予採用**。
 **理由：** 雖然該策略節省了預先建立索引的空間，但在 Query 階段需要即時呼叫 50 次 Embedding API，延遲過高。且我們目前的 Hybrid Retriever (BM25 + Pre-computed Vector + KG + RRF) 在召回率與效能上皆優於該方案，故維持現有架構。
 
+### lixiang1202_optimize-rag-performance(1210)_part2
+**目標：** 修正前次參數調整導致的分數下降問題，尋找 Context Window 與 Creative 的最佳平衡。
+
+**改動內容：**
+
+1.  **修正生成參數 (Refining Generation Config):**
+    *   **Context Window (`num_ctx`):** 從 16384 下修為 **8192**。
+        *   **理由：** 觀察到 16k 的大視窗反而導致 `granite4:3b` 這樣的小模型注意力渙散 (Lost in the Middle)，無法精準捕捉關鍵訊息，故回調至 8k 以集中注意力。
+    *   **溫度 (`temperature`):** 從 0.1 上調為 **0.6**。
+        *   **理由：** 極低的溫度 (0.1) 雖然穩定，但可能導致回答過於僵硬或簡短。調高到 0.6 (中性偏活躍) 可以讓模型在語句組織上更自然流暢，也有助於 ROUGE 分數（增加詞彙多樣性）。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
