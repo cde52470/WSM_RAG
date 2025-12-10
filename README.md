@@ -336,6 +336,17 @@ docker-compose up --build
     *   **優化：** 將 CoT (Chain-of-Thought) 的 System Prompt 與 User Prompt 從簡體中文改回繁體中文。
     *   **理由：** 經 `esdese` 實驗驗證，對於繁體中文的財報資料，使用繁體 Prompt 能顯著提升模型對細節的理解與回答的準確性。
 
+### lixiang1202_optimize-rag-performance(1210)
+**目標：** 優化 LLM 生成參數，確保模型能夠完整讀取檢索內容並生成完整、精確的答案。
+
+**改動內容：**
+
+1.  **生成參數調優 (Generation Config - `My_RAG/generator.py`):**
+    *   **Context Window (`num_ctx`):** 設定為 **16384**（這是一個關鍵修正，預設值可能太小導致檢索到的後段內容被截斷無視）。
+    *   **最大生成長度 (`num_predict`):** 設定為 **512**（避免模型在回答還沒講完時就因為 token 上限而突然中斷）。
+    *   **溫度 (`temperature`):** 設定為 **0.1**（RAG 任務需要極高的事實準確性，低溫模式能抑制模型的「創意」與幻覺，讓它嚴格依據上下文回答）。
+    *   **效益：** 解決了「模型讀不到完整資料」與「回答被腰斬」的潛在問題，大幅提升了回答的完整性與可靠度。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07

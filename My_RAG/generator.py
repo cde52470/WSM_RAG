@@ -103,7 +103,16 @@ def generate_answer(query, context_chunks, ollama_client):
     
     try:
         # 直接使用傳入的 ollama_client
-        response = ollama_client.generate(model=model, prompt=prompt)
+        response = ollama_client.generate(
+            model=model, 
+            prompt=prompt,
+            stream=False,
+            options={
+                "num_ctx": 16384,    # 擴大 Context Window 以容納更多檢索內容 (16k)
+                "num_predict": 512,  # 增加生成長度，避免回答被截斷
+                "temperature": 0.1,  # 低溫模式，減少幻覺
+            }
+        )
         raw_output = response["response"]
         
         # 4. 解析輸出 (只回傳 Answer 部分)
