@@ -4,3 +4,4 @@ jieba
 ollama
 tqdm
 PyYAML
+numpy

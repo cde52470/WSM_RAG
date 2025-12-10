@@ -4,6 +4,7 @@ import numpy as np
 import jieba
 from rank_bm25 import BM25Okapi
 import ollama
+import math
 # ==========================================
 # 1. Dense DenseRetriever Configuration: 中英文調整
 # ==========================================
@@ -70,7 +71,7 @@ class SparseRetriever:
 
 class DenseRetriever:
     """
-    模型 2: Vector Search (符合作業建議的第二種模型)
+    模型 2: Vector Search 
     """
     def __init__(self, chunks, language):
         self.chunks = chunks
@@ -130,29 +131,46 @@ class DenseRetriever:
 
 class RelevanceClassifier:
     """
-    這是一個 Classifier 的框架。
     目前實作：基於規則 (Heuristic) 的分類器。
     進階實作：你可以訓練一個 Logistic Regression 或使用 Cross-Encoder 來取代這裡的邏輯。
     """
     def predict_score(self, query, chunk_content, original_score):
-        boost = 0.0
-        
-        # Feature 1: 實體匹配 (Entity Matching)
-        # 這是作業提到的 "Advanced Task" 的一種簡單實現
-        query_terms = set(re.findall(r"\w+", query.lower()))
-        chunk_terms = set(re.findall(r"\w+", chunk_content.lower()))
-        
-        # 找出年份 (如 2023, 112學年)
-        years = re.findall(r"\d{4}", query)
-        for year in years:
-            if year in chunk_content:
-                boost += 0.2  # 年份匹配給予高權重
-        
-        # Feature 2: 關鍵詞覆蓋率 (Term Overlap)
-        overlap = len(query_terms & chunk_terms)
-        boost += overlap * 0.05
+        if original_score == 0:
+            return original_score
 
-        return original_score + boost
+        boost = 0.0
+        content_lower = chunk_content.lower()
+        
+        # Feature 1: 年份
+        query_years = re.findall(r"\d{4}", query)
+        if query_years:
+            #文章含有連續4個數字的數量
+            doc_years_all = re.findall(r"\d{4}", content_lower)
+            num_years_in_doc = len(doc_years_all)
+            match_count = sum(1 for y in query_years if y in content_lower)
+
+            if match_count > 0:
+                # 懲罰係數：log(x + 2)
+                density_penalty = math.log(num_years_in_doc + 2)
+                year_boost = (0.05 * match_count) / density_penalty
+                boost += year_boost
+            
+            else:
+                boost += 0.05
+
+        
+        # Feature 2: 懲罰query
+        """
+        query_terms = set(re.findall(r"\w+", query.lower()))
+        chunk_terms = set(re.findall(r"\w+", content_lower))
+        if len(query_terms) > 0:
+            overlap = len(query_terms & chunk_terms)
+            overlap_ratio = overlap / len(query_terms) 
+            boost += overlap_ratio * 0.05
+        """
+
+        final_score = original_score * (1 + boost)
+        return final_score
 
 # ==========================================
 # 4. 主流程 (Main Pipeline)
@@ -190,7 +208,7 @@ class EnsembleRetriever:
                 norm_map[idx] = (score - min_s) / (max_s - min_s)
         return norm_map
 
-    def retrieve(self, query, top_k=30):
+    def retrieve(self, query, top_k=10):
         # 1. 雙路召回 (Retrieval)
         # 為了融合效果，這裡取較多的候選集 (top_k * 3)
         candidates_k = top_k * 3
@@ -213,8 +231,10 @@ class EnsembleRetriever:
             s_bm25 = bm25_norm.get(idx, 0.0)
             s_vec = vec_norm.get(idx, 0.0)
             
-            # 融合公式
+            # hybrid+信心
             fusion_score = (beta * s_bm25) + (alpha * s_vec)
+            if s_bm25 > 0 and s_vec > 0:
+                fusion_score *= 1.1
             
             merged_results.append({
                 "index": idx,
