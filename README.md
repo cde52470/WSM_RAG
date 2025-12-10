@@ -371,6 +371,11 @@ docker-compose up --build
     *   **改動：** 將 `chunk_overlap` 從預設的 200 提升至 **300** (在 `chunk_size` 維持 1000 的情況下)。
     *   **理由：** 參考 `esdese` 分支的實驗數據，較高的重疊率 (High Overlap) 有助於避免關鍵資訊（如跨句子的財務數據指涉）在切分時被截斷，確保每個 Chunk 都包含足夠的上下文供模型理解。
 
+### wang(Evaluation Only)(12100550)
+**評估結果：** 經分析 `wang` 分支的 `retriever.py`，發現其採用「BM25 篩選 -> 即時計算向量 (Embed-on-the-fly) -> 重排序」的輕量化策略。
+**決策：** **不予採用**。
+**理由：** 雖然該策略節省了預先建立索引的空間，但在 Query 階段需要即時呼叫 50 次 Embedding API，延遲過高。且我們目前的 Hybrid Retriever (BM25 + Pre-computed Vector + KG + RRF) 在召回率與效能上皆優於該方案，故維持現有架構。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
