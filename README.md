@@ -347,6 +347,21 @@ docker-compose up --build
     *   **溫度 (`temperature`):** 設定為 **0.1**（RAG 任務需要極高的事實準確性，低溫模式能抑制模型的「創意」與幻覺，讓它嚴格依據上下文回答）。
     *   **效益：** 解決了「模型讀不到完整資料」與「回答被腰斬」的潛在問題，大幅提升了回答的完整性與可靠度。
 
+### uuuu_1209_withLC(12100528)
+**目標：** 引入更穩健的 Ollama 連線管理機制，提升系統在不同環境（Docker/Local）下的適應性與穩定性。
+
+**改動內容：**
+
+1.  **穩健的 Ollama Client (Robust Connection - `My_RAG/generator.py`):**
+    *   **來源：** 從 `uuuu_1209_withLC` 分支移植了 `get_ollama_client` 與 `load_ollama_config` 函式。
+    *   **功能：**
+        *   **Singleton 模式：** 確保全域只建立一個 Ollama Client 實例，減少重複連線開銷。
+        *   **自動故障轉移 (Failover)：** 若 Config 指定的 Host 連線失敗，會自動嘗試預設候選列表 (`ollama-gateway`, `ollama`, `localhost`, `127.0.0.1`)。
+    *   **效益：**
+        *   不再需要手動修改程式碼中的 IP 位址來適應不同環境。
+        *   解決了在 Docker 容器內可能連不到 Host Ollama 的問題，系統會自動尋找可用的通道。
+        *   程式碼與 `uuuu` 分支的優良架構對齊，方便未來維護。
+
 ## 🚀 未來工作 (Future Work)
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
