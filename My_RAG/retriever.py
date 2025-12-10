@@ -258,5 +258,6 @@ class EnsembleRetriever:
         # 回傳 Top-K 的原始 chunk 內容
         return [item["chunk"] for item in merged_results[:top_k]]
 
-def create_retriever(chunks, language):
+def create_retriever(chunks, language, **kwargs):
+    # 如果未來要用 index_path，可以從 kwargs.get("index_path") 取得
     return EnsembleRetriever(chunks, language)

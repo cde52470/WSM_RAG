@@ -3,25 +3,84 @@ from pathlib import Path
 import yaml
 import re
 
+_OLLAMA_CLIENT = None
+_OLLAMA_CLIENT_INITIALIZED = False
+
 def load_ollama_config() -> dict:
     configs_folder = Path(__file__).parent.parent / "configs"
     config_paths = [
         configs_folder / "config_local.yaml",
         configs_folder / "config_submit.yaml",
     ]
-    config_path = None
+    config = {}
     for path in config_paths:
         if path.exists():
-            config_path = path
+            with open(path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            config = raw.get("ollama", {})
             break
 
-    if config_path is None:
-        return {"host": "http://ollama-gateway:11434", "model": "granite4:3b"}
+    # If no config found, use a local default
+    if not config:
+        config = {
+            "host": "http://127.0.0.1:11434",
+            "model": "granite4:3b",
+        }
 
-    with open(config_path, "r") as file:
-        config = yaml.safe_load(file)
+    # Ensure model is present
+    if "model" not in config:
+        config["model"] = "granite4:3b"
 
-    return config.get("ollama", {})
+    return config
+
+def get_ollama_client() -> Client:
+    """
+    Connect to Ollama with failover support:
+    1. Host specified in config
+    2. Default candidate hosts (gateway, service name, localhost)
+    Returns a cached client instance.
+    """
+    global _OLLAMA_CLIENT, _OLLAMA_CLIENT_INITIALIZED
+
+    if _OLLAMA_CLIENT_INITIALIZED:
+        return _OLLAMA_CLIENT
+
+    cfg = load_ollama_config()
+    candidate_hosts = []
+
+    if "host" in cfg and cfg["host"]:
+        if isinstance(cfg["host"], str):
+            candidate_hosts.append(cfg["host"])
+        elif isinstance(cfg["host"], (list, tuple)):
+            candidate_hosts.extend(cfg["host"])
+
+    default_hosts = [
+        "http://ollama-gateway:11434",
+        "http://ollama:11434",
+        "http://localhost:11434",
+        "http://127.0.0.1:11434",
+    ]
+    for h in default_hosts:
+        if h not in candidate_hosts:
+            candidate_hosts.append(h)
+
+    last_error = None
+    for host in candidate_hosts:
+        try:
+            client = Client(host=host)
+            client.list() # Health check
+            print(f"[INFO] Connected to Ollama at {host}")
+            _OLLAMA_CLIENT = client
+            _OLLAMA_CLIENT_INITIALIZED = True
+            return client
+        except Exception as e:
+            print(f"[WARN] Failed to connect to Ollama at {host}. Error: {e}")
+            last_error = e
+
+    _OLLAMA_CLIENT = None
+    _OLLAMA_CLIENT_INITIALIZED = True
+    # If all fail, raise error
+    raise ConnectionError(f"Failed to connect to any Ollama host. Last error: {last_error}")
 
 def is_contains_chinese(strs):
     """檢查字串是否包含中文字元"""
@@ -50,7 +109,7 @@ def _parse_model_output(response_text: str, language: str) -> str:
     # 這裡採取保守策略：如果沒 tag，就回傳全部，避免切錯。
     return content
 
-def generate_answer(query, context_chunks, ollama_client):
+def generate_answer(query, context_chunks, ollama_client=None):
     # 1. 準備 Context
     context = "\n\n".join([chunk['page_content'] for chunk in context_chunks])
     
@@ -97,13 +156,23 @@ def generate_answer(query, context_chunks, ollama_client):
         )
 
     # 3. 呼叫模型
-    # 優先使用 config 設定，若無則 fallback 到預設值
-    ollama_config = load_ollama_config()
-    model = "granite4:3b" # 或者保留原本的 "granite4:3b"
+    cfg = load_ollama_config()
+    model = cfg.get("model", "granite4:3b")
+    
+    # 獲取 Client (優先使用傳入的，否則使用 Singleton Failover Client)
+    client = ollama_client if ollama_client else get_ollama_client()
     
     try:
-        # 直接使用傳入的 ollama_client
-        response = ollama_client.generate(model=model, prompt=prompt)
+        response = client.generate(
+            model=model, 
+            prompt=prompt,
+            stream=False,
+            options={
+                "num_ctx": 8192,     # 改回 8k (16k 導致小模型注意力渙散，分數下降)
+                "num_predict": 512,  # 增加生成長度，避免回答被截斷
+                "temperature": 0.6,  # 中性偏高溫度，增加回答多樣性與自然度
+            }
+        )
         raw_output = response["response"]
         
         # 4. 解析輸出 (只回傳 Answer 部分)
