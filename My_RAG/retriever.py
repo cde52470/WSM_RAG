@@ -259,6 +259,6 @@ class EnsembleRetriever:
         #assert final_top_chunks != [], "Final top chunks should not be empty."
         return final_top_chunks
 
-def create_retriever(chunks, language, index_path=None):
+def create_retriever(chunks, language, **kwargs):
     # assert chunks == [], "Chunks should not be empty."
-    return EnsembleRetriever(chunks, language, index_path=index_path)
+    return EnsembleRetriever(chunks, language)

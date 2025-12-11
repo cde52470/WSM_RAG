@@ -116,8 +116,7 @@ def main(query_path, docs_path, language, output_path):
         raise ConnectionError("Failed to connect to any Ollama host.")
 
     print("Creating retriever...")
-    index_filename = f"kg_index_{language}.json" if language else "kg_index.json"
-    retriever = create_retriever(chunks, language, index_path=index_filename)
+    retriever = create_retriever(chunks, language, index_path="kg_index.json")
     
     for query in tqdm(queries, desc="Processing Queries"):
         original_query_text = query['query']['content']
@@ -142,7 +141,7 @@ def main(query_path, docs_path, language, output_path):
         query["prediction"]["content"] = answer
         
         # Use the same chunks for reference selection
-        reference_sentences = _select_reference_sentences(original_query_text, final_chunks, qLanguage, max_refs=5)
+        reference_sentences = _select_reference_sentences(original_query_text, final_chunks, qLanguage, max_refs=10)
         query["prediction"]["references"] = reference_sentences
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
