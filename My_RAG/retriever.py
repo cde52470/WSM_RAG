@@ -148,7 +148,7 @@ class HybridRetriever:
         Let the Generator Model (granite4:3b) verify the relevance of retrieved docs.
         """
         # Limit to Top-30 (Aggressive Recall check)
-        # Trade-off: Slower but safer.
+        # Performance: Recommended for High-End GPUs
         process_k = 30
         candidates = candidate_indices[:process_k]
         

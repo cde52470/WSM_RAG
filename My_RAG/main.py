@@ -64,7 +64,8 @@ def generate_multiple_queries(original_query: str, ollama_client: Client) -> lis
     prompt = f"""You are a helpful assistant. Your task is to generate 3 different versions of the given user question to retrieve relevant documents. Provide these alternative questions separated by newlines. Only provide the questions, no other text.
 Original question: {original_query}"""
     try:
-        model_name = os.getenv("REWRITER_MODEL", "gemma:2b")
+        # Optimization: Use same model as other tasks to avoid VRAM swapping thrashing
+        model_name = os.getenv("REWRITER_MODEL", "granite4:3b")
         response = ollama_client.generate(model=model_name, prompt=prompt, stream=False)
         generated_text = response.get("response", "")
         queries = [q.strip() for q in generated_text.split('\n') if q.strip()]
