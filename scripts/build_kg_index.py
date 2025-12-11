@@ -87,42 +87,56 @@ def extract_generic_properties(content: str, domain: str = None) -> List[str]:
             
     return entities
 
+# --- CLI Arguments ---
+import argparse
+
 def main():
-    logging.info(f"--- Starting Optimized KG Build (No Pandas, LLM: {LLM_MODEL}) ---")
+    parser = argparse.ArgumentParser(description="Build Knowledge Graph Index (Optimization 1210)")
+    parser.add_argument("--language", type=str, required=True, choices=["en", "zh"], help="Target language (en or zh)")
+    args = parser.parse_args()
+    
+    target_lang = args.language
+    output_filename = f"kg_index_{target_lang}.json"
+    
+    logging.info(f"--- Starting Optimized KG Build for [{target_lang}] ---")
     
     # 1. Connect to Ollama
     use_llm = False
     try:
         client = Client(host=OLLAMA_HOST)
-        client.show(LLM_MODEL) 
+        # Check connection
+        client.list()
         logging.info(f"Connected to Ollama. Using model: {LLM_MODEL}")
         use_llm = True
     except Exception as e:
         logging.warning(f"Ollama connection issue: {e}. Building with Regex ONLY.")
 
-    # 2. Load Docs (Standard JSONL - Matching Runtime Order)
+    # 2. Load Docs
     docs_list = []
     try:
         if not os.path.exists(DOCS_PATH):
             raise FileNotFoundError(f"Documents file not found: {DOCS_PATH}")
         
-        logging.info("Loading documents (standard line-by-line)...")
+        logging.info("Loading documents...")
         with open(DOCS_PATH, 'r', encoding='utf-8') as f:
             for line in f:
                 if line.strip():
                     docs_list.append(json.loads(line))
-        logging.info(f"Loaded {len(docs_list)} documents.")
+        logging.info(f"Loaded {len(docs_list)} total documents.")
         
     except Exception as e:
         logging.error(f"Data loading failed: {e}")
         sys.exit(1)
 
-    # 3. Chunking
+    # 3. Chunking (With Language Filtering)
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 300
-    logging.info(f"Chunking documents (Size={CHUNK_SIZE}, Overlap={CHUNK_OVERLAP})...")
-    chunks = chunk_documents(docs_list, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-    logging.info(f"Generated {len(chunks)} chunks.")
+    logging.info(f"Chunking documents (Lang={target_lang}, Size={CHUNK_SIZE})...")
+    
+    # Important: Pass language to chunk_documents to match Runtime logic exactly
+    chunks = chunk_documents(docs_list, language=target_lang, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    
+    logging.info(f"Generated {len(chunks)} chunks for {target_lang}.")
 
     # 4. Build Index
     entity_map = defaultdict(set)
@@ -139,9 +153,13 @@ def main():
         for ent in regex_ents:
             entity_map[ent].add(i)
             
-        # B. LLM (Semantic Recall)
+        # B. LLM (Semantic Recall) - Only if enabled and content is sufficient
         if use_llm and len(content) > 50:
              try:
+                # Optimized: Only call LLM for English or if we really need it for ZH concepts
+                # For ZH, Jieba (baseline) is usually good enough, but LLM can help.
+                # To be safe and speed up, maybe skip LLM for zh? 
+                # Let's keep it but handle exceptions nicely.
                 llm_ents = llm_extract_entities(content, client, LLM_MODEL)
                 for ent in llm_ents:
                      # Check if it looks like a year (avoid duplicate/wrong weight)
@@ -155,6 +173,7 @@ def main():
     # 5. Initialize Baseline Generic KG (Jieba)
     from My_RAG.knowledge_graph import SimpleKnowledgeGraph
     logging.info("Merging with baseline Jieba extraction...")
+    # NOTE: SimpleKnowledgeGraph internally runs Jieba on these text chunks
     kg = SimpleKnowledgeGraph(chunks) 
     
     # Merge our findings
@@ -164,8 +183,8 @@ def main():
             
     # 6. Save
     logging.info(f"Final Entity Count: {len(kg.entity_map)}")
-    logging.info(f"Saving index to {OUTPUT_KG_PATH}...")
-    kg.save(OUTPUT_KG_PATH)
+    logging.info(f"Saving index to {output_filename}...")
+    kg.save(output_filename)
     
     elapsed = time.time() - start_time
     logging.info(f"Build complete in {elapsed:.2f} seconds.")

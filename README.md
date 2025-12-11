@@ -379,11 +379,13 @@ docker-compose up --build
 ### lixiang1202_optimize-rag-performance(1210)_part2_Pre-computed-KG
 為了加速初始化過程並允許手動檢查 Knowledge Graph (KG)：
 1.  安裝建置依賴：`pip install pandas tqdm`
-2.  執行建置腳本：`python scripts/build_kg_index.py`
-3.  這將在根目錄生成 `kg_index.json`。
+2.  執行建置腳本 (需指定語言):
+    *   **English Index:** `python scripts/build_kg_index.py --language en`
+    *   **Chinese Index:** `python scripts/build_kg_index.py --language zh`
+3.  這將在根目錄生成 `kg_index_en.json` 與 `kg_index_zh.json`。
 4.  **重要**：請務必 Commit 並 Push 此檔案以作為「小抄 (Cheat Sheet)」使用：
    ```bash
-   git add kg_index.json
+   git add kg_index_en.json kg_index_zh.json
    git commit -m "chore: add pre-computed knowledge graph index"
    git push origin lixiang1202_optimize-rag-performance
    ```
@@ -431,7 +433,7 @@ docker-compose up --build
     - 2nd optimization wave based on manual testing.
 
 - **lixiang1202_optimize-rag-performance(1211)**:
-    - **Critical Fix for KG Alignment**: 移除 `scripts/build_kg_index.py` 中的 Pandas 依賴，改回標準 JSONL 讀取方式，確保與 Runtime 的 Chunk 順序完全一致，解決分數異常下降問題。
+    - **Critical Fix for KG Alignment**: 移除 `scripts/build_kg_index.py` 中的 Pandas 依賴，並新增 `--language` 參數以生成特定語言的索引 (`kg_index_en.json`)，確保與 Runtime 的 Chunk ID 對應完全正確。
     - **KG Quality Optimization**:
         - 新增 **Stopwords Filter**：過濾 "Company", "Report", "Amount" 等通用高頻詞，防止檢索結果被雜訊汙染。
         - 新增 **Numeric/Year Guard**：防止純數字或年份被誤標為高權重的 Term，確保年份權重邏輯 (Year=1.0) 生效。
