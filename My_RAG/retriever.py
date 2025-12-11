@@ -141,62 +141,6 @@ class HybridRetriever:
             print(f"HyDE generation failed: {e}")
             return query  # 如果生成失敗，退回使用原始 query
 
-    def retrieve(self, query: str, top_k: int = None, use_hyde: bool = False) -> List[Dict[str, Any]]:
-        final_k = top_k if top_k is not None else self.final_top_k
-        
-        # --- 1. 決定用於向量檢索的文字 ---
-        search_text_for_vector = query
-        if use_hyde and self.dense_encoder:
-            # 如果開啟 HyDE，先生成假答案，用假答案去轉向量
-            fake_doc = self._generate_hyde_doc(query)
-            # print(f"HyDE Generated: {fake_doc[:50]}...") # debug用
-            search_text_for_vector = fake_doc
-        
-        query_tokens = self._tokenize(query)
-        
-        # --- 階段 1: BM25 檢索 ---
-        # get_scores 比較快，不要用 get_top_n
-        bm25_scores = self.bm25.get_scores(query_tokens)
-        
-        # [Optimization from wang branch]
-        # Light re-ranking: boost exact company/year matches to reduce entity confusion.
-        names, years = self._focus_terms(query)
-        if names or years:
-            for i, chunk in enumerate(self.chunks):
-                text_lower = chunk.get("page_content", "").lower()
-                boost = 0.0
-                if names:
-                    boost += 0.3 * sum(1 for name in names if name in text_lower)
-                if years:
-                    boost += 0.15 * sum(1 for yr in years if yr in text_lower)
-                if boost:
-                    bm25_scores[i] += boost
-        
-        # 取得前 N 名的 index
-        bm25_top_indices = np.argsort(bm25_scores)[::-1][:self.bm25_top_k]
-
-        # --- 階段 2: 向量檢索 (Vector Search) ---
-        embed_top_indices = []
-        if self.dense_encoder and self.chunk_embeddings is not None:
-            query_embedding = self.dense_encoder.encode(query, convert_to_numpy=True, normalize_embeddings=True)
-            
-            # 使用矩陣運算一次計算所有相似度 (Dot Product 因為已 Normalize = Cosine Similarity)
-            # 這是 Numpy 的廣播機制，比 for loop 快非常多
-            similarities = np.dot(self.chunk_embeddings, query_embedding)
-            embed_top_indices = np.argsort(similarities)[::-1][:self.embed_top_k]
-
-        # --- 階段 3 (NEW): Knowledge Graph 檢索 ---
-        kg_scores = self.kg.search(query)
-        # Sort by score descending
-        kg_sorted = sorted(kg_scores.items(), key=lambda x: x[1], reverse=True)
-        # Take top K (e.g. same as BM25 top k for fusion pool)
-        kg_top_indices = [idx for idx, score in kg_sorted[:self.bm25_top_k]]
-
-        # --- 階段 4: 融合 (Hybrid Fusion) ---
-        # 使用 RRF 合併三種結果 (BM25, Vector, KG)
-        merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
-        
-        return [self.chunks[idx] for idx in final_indices]
 
     def _llm_cross_check(self, query: str, candidate_indices: List[int], initial_scores: List[float] = None) -> List[int]:
         """
