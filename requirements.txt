@@ -1,0 +1,11 @@
+jieba
+jsonlines
+ollama
+pydantic
+PyYAML
+rank_bm25
+tqdm
+sentence-transformers
+transformers
+torch
+numpy
