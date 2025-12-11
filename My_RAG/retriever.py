@@ -147,9 +147,8 @@ class HybridRetriever:
         [1211_part2] LLM-based Reranker (Pointwise Scoring)
         Let the Generator Model (granite4:3b) verify the relevance of retrieved docs.
         """
-        # Limit to Top-30 (Aggressive Recall check)
-        # Performance: Recommended for High-End GPUs
-        process_k = 30
+        # Limit to Top-60 (RTX 5090 Ultra Mode)
+        process_k = 60
         candidates = candidate_indices[:process_k]
         
         final_scored_results = []
@@ -260,7 +259,8 @@ class HybridRetriever:
         merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
         
         # 這裡的候選集數量可以稍微多一點，例如取前 150 個給 Reranker，提升召回率 (Widen the Funnel)
-        candidate_indices = merged_indices[:150] 
+        # Scale up for RTX 5090: Widen the funnel to 300
+        candidate_indices = merged_indices[:300] 
         candidate_docs = [self.corpus[i] for i in candidate_indices]
 
         # --- 階段 5: 重排序 (Re-ranking) ---
@@ -275,10 +275,10 @@ class HybridRetriever:
             # 根據 rerank 分數重新排序
             results_with_scores.sort(key=lambda x: x[1], reverse=True)
             
-            # 取前 50 名進入 LLM Final Check (提供足夠的候選給 LLM 挑選 Top-30)
-            ranked_pool_indices = [idx for idx, score in results_with_scores[:50]]
+            # 取前 100 名進入 LLM Final Check (5090 Power!)
+            ranked_pool_indices = [idx for idx, score in results_with_scores[:100]]
         else:
-            ranked_pool_indices = candidate_indices[:50]
+            ranked_pool_indices = candidate_indices[:100]
 
         # --- 階段 6 (NEW): LLM Cross-Check ---
         # 這是 Part 2 的核心：讓 LLM 親自看一眼，確保真的相關

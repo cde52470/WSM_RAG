@@ -440,7 +440,7 @@ docker-compose up --build
         - 強制實體轉小寫並進行長度檢查，提升 Index 品質。
 
 - **lixiang1202_optimize-rag-performance(1211)_part2**:
-    - **LLM Scoring**: 實作 `_llm_cross_check`，讓 `granite4:3b` 對 Top-30 文件進行 0-10 分的相關性評分 (Pointwise)，作為最終排序依據。
+    - **LLM Scoring**: 實作 `_llm_cross_check`，讓 `granite4:3b` 對 Top-60 文件進行 0-10 分的相關性評分 (Pointwise)，作為最終排序依據。 (RTX 5090 Ultra Mode)
 
 ## 🚀 未來工作 (Future Work)
 
