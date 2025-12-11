@@ -389,12 +389,29 @@ docker-compose up --build
    ```
 5.  RAG Pipeline 在執行時若發現此檔案存在，將會自動載入。
 
+### lixiang1202_optimize-rag-performance(1211)
+**目標：** 修復 KG Index 與 Runtime Chunk ID 不一致導致的嚴重分數下降問題，並進一步提升 KG 品質。
+
+**改動內容：**
+1.  **Alignment Fix (對齊修正)**：
+    *   棄用 `pandas` 讀取文檔，改用與 Runtime 完全一致的逐行讀取 (`open(..., 'r')`) 與 JSON 解析。確保 Offline Index 的 Chunk ID 與 Runtime 絕對同步。
+2.  **Noise Filtering (雜訊過濾)**：
+    *   在 LLM 提取階段加入 **Stopwords** 過濾 (如 "Company", "Report")。
+    *   防止 LLM 將年份或純數字標記為高權重實體 (Terms)。
+
 ## Change Log
 - **lixiang1202_optimize-rag-performance(1210)_part2_Pre-computed-KG**:
     - 實作「小抄戰略 (Cheat Sheet Strategy)」：預先計算 Knowledge Graph 並存為 `kg_index.json` 以便快速載入。
     - 新增 `scripts/build_kg_index.py` 用於離線生成索引 (支援 Pandas + Regex + LLM 增強)。
     - **重大修正 (Critical Fix)**：修正 `knowledge_graph.py` 中的年份提取 Regex (舊版只抓到了前綴 "20" 或 "19")。
     - 更新 `retriever.py` 與 `main.py` 以支援讀取外部 `index_path`。
+
+- **lixiang1202_optimize-rag-performance(1211)**:
+    - **Critical Fix for KG Alignment**: 移除 `scripts/build_kg_index.py` 中的 Pandas 依賴，改回標準 JSONL 讀取方式，確保與 Runtime 的 Chunk 順序完全一致，解決分數異常下降問題。
+    - **KG Quality Optimization**:
+        - 新增 **Stopwords Filter**：過濾 "Company", "Report", "Amount" 等通用高頻詞，防止檢索結果被雜訊汙染。
+        - 新增 **Numeric/Year Guard**：防止純數字或年份被誤標為高權重的 Term，確保年份權重邏輯 (Year=1.0) 生效。
+        - 強制實體轉小寫並進行長度檢查，提升 Index 品質。
 
 - **lixiang1202_optimize-rag-performance(1210)_Parameter-Tuning**:
     - Adjusted parameters: `num_ctx=8192` (from 16k), `temperature=0.6`.
