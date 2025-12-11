@@ -389,6 +389,16 @@ docker-compose up --build
    ```
 5.  RAG Pipeline 在執行時若發現此檔案存在，將會自動載入。
 
+### lixiang1202_optimize-rag-performance(1210)_Parameter-Tuning
+**目標：** 修正前次參數調整導致的分數下降問題，尋找 Context Window 與 Creative 的最佳平衡。
+
+**改動內容：**
+1.  **修正生成參數 (Refining Generation Config):**
+    *   **Context Window (`num_ctx`):** 從 16384 下修為 **8192**。
+        *   **理由：** 觀察到 16k 的大視窗反而導致 `granite4:3b` 這樣的小模型注意力渙散 (Lost in the Middle)，無法精準捕捉關鍵訊息，故回調至 8k 以集中注意力。
+    *   **溫度 (`temperature`):** 從 0.1 上調為 **0.6**。
+        *   **理由：** 極低的溫度 (0.1) 雖然穩定，但可能導致回答過於僵硬或簡短。調高到 0.6 (中性偏活躍) 可以讓模型在語句組織上更自然流暢，也有助於 ROUGE 分數（增加詞彙多樣性）。
+
 ### lixiang1202_optimize-rag-performance(1211)
 **目標：** 修復 KG Index 與 Runtime Chunk ID 不一致導致的嚴重分數下降問題，並進一步提升 KG 品質。
 
@@ -399,12 +409,26 @@ docker-compose up --build
     *   在 LLM 提取階段加入 **Stopwords** 過濾 (如 "Company", "Report")。
     *   防止 LLM 將年份或純數字標記為高權重實體 (Terms)。
 
+### lixiang1202_optimize-rag-performance(1211)_part2
+**目標：** 在檢索的最後一哩路，利用 LLM 的判斷力進行「二次驗證 (Post-Verification)」，剔除那些「關鍵字匹配但內容無關」的文件。
+
+**改動內容：**
+1.  **LLM Scoring (Pointwise Reranking)**：
+    *   在 `retriever.retrieve` 的最後階段新增 `_llm_cross_check` 方法。
+    *   針對 Reranker 選出的 **Top-30** 候選文件 (Aggressive Recall Check)，逐一送入 `granite4:3b` 進行評分 (0-10 分)。
+    *   Prompt: *"You are a relevance judge... Rate the relevance from 0 to 10."*
+    *   **效益：** 這是最終極的過濾手段。即使文件通過了 BM25、Vector 和 Cross-Encoder 的篩選，如果 LLM 讀了覺得「文不對題」，它仍會被降權。這能有效提升最終送給 Generator 的 Top-5 品質。
+
 ## Change Log
 - **lixiang1202_optimize-rag-performance(1210)_part2_Pre-computed-KG**:
     - 實作「小抄戰略 (Cheat Sheet Strategy)」：預先計算 Knowledge Graph 並存為 `kg_index.json` 以便快速載入。
     - 新增 `scripts/build_kg_index.py` 用於離線生成索引 (支援 Pandas + Regex + LLM 增強)。
     - **重大修正 (Critical Fix)**：修正 `knowledge_graph.py` 中的年份提取 Regex (舊版只抓到了前綴 "20" 或 "19")。
     - 更新 `retriever.py` 與 `main.py` 以支援讀取外部 `index_path`。
+
+- **lixiang1202_optimize-rag-performance(1210)_Parameter-Tuning**:
+    - Adjusted parameters: `num_ctx=8192` (from 16k), `temperature=0.6`.
+    - 2nd optimization wave based on manual testing.
 
 - **lixiang1202_optimize-rag-performance(1211)**:
     - **Critical Fix for KG Alignment**: 移除 `scripts/build_kg_index.py` 中的 Pandas 依賴，改回標準 JSONL 讀取方式，確保與 Runtime 的 Chunk 順序完全一致，解決分數異常下降問題。
@@ -413,24 +437,10 @@ docker-compose up --build
         - 新增 **Numeric/Year Guard**：防止純數字或年份被誤標為高權重的 Term，確保年份權重邏輯 (Year=1.0) 生效。
         - 強制實體轉小寫並進行長度檢查，提升 Index 品質。
 
-- **lixiang1202_optimize-rag-performance(1210)_Parameter-Tuning**:
-    - Adjusted parameters: `num_ctx=8192` (from 16k), `temperature=0.6`.
-    - 2nd optimization wave based on manual testing.
-
-**目標：** 修正前次參數調整導致的分數下降問題，尋找 Context Window 與 Creative 的最佳平衡。
-
-**改動內容：**
-
-1.  **修正生成參數 (Refining Generation Config):**
-    *   **Context Window (`num_ctx`):** 從 16384 下修為 **8192**。
-        *   **理由：** 觀察到 16k 的大視窗反而導致 `granite4:3b` 這樣的小模型注意力渙散 (Lost in the Middle)，無法精準捕捉關鍵訊息，故回調至 8k 以集中注意力。
-    *   **溫度 (`temperature`):** 從 0.1 上調為 **0.6**。
-        *   **理由：** 極低的溫度 (0.1) 雖然穩定，但可能導致回答過於僵硬或簡短。調高到 0.6 (中性偏活躍) 可以讓模型在語句組織上更自然流暢，也有助於 ROUGE 分數（增加詞彙多樣性）。
+- **lixiang1202_optimize-rag-performance(1211)_part2**:
+    - **LLM Scoring**: 實作 `_llm_cross_check`，讓 `granite4:3b` 對 Top-30 文件進行 0-10 分的相關性評分 (Pointwise)，作為最終排序依據。
 
 ## 🚀 未來工作 (Future Work)
-
-
-
 
 ### 待測試的妥協 (Hypotheses for Compromise) - 2025/12/07
 **比較對象：** `wang` (Score: ~28.93) vs `lixiang1202_optimize-rag-performance` (Score: ~25.21)

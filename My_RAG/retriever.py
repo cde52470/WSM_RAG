@@ -196,11 +196,131 @@ class HybridRetriever:
         # 使用 RRF 合併三種結果 (BM25, Vector, KG)
         merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
         
+        return [self.chunks[idx] for idx in final_indices]
+
+    def _llm_cross_check(self, query: str, candidate_indices: List[int], initial_scores: List[float] = None) -> List[int]:
+        """
+        [1211_part2] LLM-based Reranker (Pointwise Scoring)
+        Let the Generator Model (granite4:3b) verify the relevance of retrieved docs.
+        """
+        # Limit to Top-30 (Aggressive Recall check)
+        # Trade-off: Slower but safer.
+        process_k = 30
+        candidates = candidate_indices[:process_k]
+        
+        final_scored_results = []
+        
+        # Pointwise Scoring Prompt
+        base_prompt = (
+            "You are a relevance judge. Analyze the Document and the Query.\n"
+            "Query: {query}\n"
+            "Document: {snippet}\n"
+            "Task: Rate the relevance from 0 to 10. Output ONLY the number.\n"
+            "Score:"
+        )
+
+        for i, idx in enumerate(candidates):
+            doc_content = self.corpus[idx]
+            # Truncate content to avoid context overflow for simple judging
+            snippet = doc_content[:500] 
+            prompt = base_prompt.format(query=query, snippet=snippet)
+            
+            try:
+                # Temperature=0.1 for stable scoring
+                response = self.ollama_client.generate(
+                    model="granite4:3b", 
+                    prompt=prompt, 
+                    options={"temperature": 0.1, "num_predict": 5}
+                )
+                
+                # Parse Score
+                score_str = response.get("response", "").strip()
+                match = re.search(r"\d+", score_str)
+                llm_score = int(match.group()) if match else 0
+                
+            except Exception:
+                llm_score = 0
+            
+            # Hybrid Score: 70% Original (Ranker) + 30% LLM 
+            # (Assuming initial_scores are available and normalized, strictly speaking Reranker output is logit, 
+            # so we just use LLM score to re-sort for now or simple addition if we trust LLM highly)
+            
+            # Strategy: Just use LLM score to boost. 
+            # If BGE says top, but LLM says 0, it drops.
+            combined_score = llm_score 
+            final_scored_results.append((idx, combined_score))
+
+        # Sort by LLM score desc
+        final_scored_results.sort(key=lambda x: x[1], reverse=True)
+        
+        # If we processed fewer than total candidates, append the rest (unscored)
+        ranked_indices = [x[0] for x in final_scored_results]
+        if len(candidate_indices) > process_k:
+            ranked_indices.extend(candidate_indices[process_k:])
+            
+        return ranked_indices[:self.final_top_k]
+
+    def retrieve(self, query: str, top_k: int = None, use_hyde: bool = False) -> List[Dict[str, Any]]:
+        final_k = top_k if top_k is not None else self.final_top_k
+        
+        # --- 1. 決定用於向量檢索的文字 ---
+        search_text_for_vector = query
+        if use_hyde and self.dense_encoder:
+            # 如果開啟 HyDE，先生成假答案，用假答案去轉向量
+            fake_doc = self._generate_hyde_doc(query)
+            # print(f"HyDE Generated: {fake_doc[:50]}...") # debug用
+            search_text_for_vector = fake_doc
+        
+        query_tokens = self._tokenize(query)
+        
+        # --- 階段 1: BM25 檢索 ---
+        # get_scores 比較快，不要用 get_top_n
+        bm25_scores = self.bm25.get_scores(query_tokens)
+        
+        # [Optimization from wang branch]
+        # Light re-ranking: boost exact company/year matches to reduce entity confusion.
+        names, years = self._focus_terms(query)
+        if names or years:
+            for i, chunk in enumerate(self.chunks):
+                text_lower = chunk.get("page_content", "").lower()
+                boost = 0.0
+                if names:
+                    boost += 0.3 * sum(1 for name in names if name in text_lower)
+                if years:
+                    boost += 0.15 * sum(1 for yr in years if yr in text_lower)
+                if boost:
+                    bm25_scores[i] += boost
+        
+        # 取得前 N 名的 index
+        bm25_top_indices = np.argsort(bm25_scores)[::-1][:self.bm25_top_k]
+
+        # --- 階段 2: 向量檢索 (Vector Search) ---
+        embed_top_indices = []
+        if self.dense_encoder and self.chunk_embeddings is not None:
+            query_embedding = self.dense_encoder.encode(query, convert_to_numpy=True, normalize_embeddings=True)
+            
+            # 使用矩陣運算一次計算所有相似度 (Dot Product 因為已 Normalize = Cosine Similarity)
+            # 這是 Numpy 的廣播機制，比 for loop 快非常多
+            similarities = np.dot(self.chunk_embeddings, query_embedding)
+            embed_top_indices = np.argsort(similarities)[::-1][:self.embed_top_k]
+
+        # --- 階段 3 (NEW): Knowledge Graph 檢索 ---
+        kg_scores = self.kg.search(query)
+        # Sort by score descending
+        kg_sorted = sorted(kg_scores.items(), key=lambda x: x[1], reverse=True)
+        # Take top K (e.g. same as BM25 top k for fusion pool)
+        kg_top_indices = [idx for idx, score in kg_sorted[:self.bm25_top_k]]
+
+        # --- 階段 4: 融合 (Hybrid Fusion) ---
+        # 使用 RRF 合併三種結果 (BM25, Vector, KG)
+        merged_indices = self._rrf_fusion(bm25_top_indices, embed_top_indices, kg_top_indices)
+        
         # 這裡的候選集數量可以稍微多一點，例如取前 150 個給 Reranker，提升召回率 (Widen the Funnel)
         candidate_indices = merged_indices[:150] 
         candidate_docs = [self.corpus[i] for i in candidate_indices]
 
         # --- 階段 5: 重排序 (Re-ranking) ---
+        ranked_pool_indices = candidate_indices
         if self.reranker:
             # Cross-Encoder 接受 list of pairs: [(query, doc1), (query, doc2), ...]
             pairs = [[query, doc] for doc in candidate_docs]
@@ -211,10 +331,14 @@ class HybridRetriever:
             # 根據 rerank 分數重新排序
             results_with_scores.sort(key=lambda x: x[1], reverse=True)
             
-            final_indices = [idx for idx, score in results_with_scores[:self.final_top_k]]
+            # 取前 50 名進入 LLM Final Check (提供足夠的候選給 LLM 挑選 Top-30)
+            ranked_pool_indices = [idx for idx, score in results_with_scores[:50]]
         else:
-            # 如果沒有 Reranker，直接回傳 RRF 的結果
-            final_indices = candidate_indices[:self.final_top_k]
+            ranked_pool_indices = candidate_indices[:50]
+
+        # --- 階段 6 (NEW): LLM Cross-Check ---
+        # 這是 Part 2 的核心：讓 LLM 親自看一眼，確保真的相關
+        final_indices = self._llm_cross_check(query, ranked_pool_indices)
 
         return [self.chunks[idx] for idx in final_indices]
 
