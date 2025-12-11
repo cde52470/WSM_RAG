@@ -5,7 +5,7 @@ from pathlib import Path
 from tqdm import tqdm
 from metrics import get_metric
 
-def init_worker(evaluator_names, use_openai=True, model='gpt-4o-mini', version='v1'):
+def init_worker(evaluator_names, use_openai=True, model='gpt-oss:20b', version='v1'):
     global evaluators
     evaluators = []
     for evaluator_name in evaluator_names:
@@ -17,7 +17,10 @@ def init_worker(evaluator_names, use_openai=True, model='gpt-4o-mini', version='
     if not evaluators:
         raise ValueError("No correct evaluators are provided")
 
-def process_item(item, language="zh", idx=0, evaluator_names=None, use_openai=False, model='gpt-4o-mini', version='v1'):
+def process_item(item, language="zh", idx=0, evaluator_names=None, use_openai=False, model='gpt-oss:20b', version='v1'):
+    if "ground_truth" not in item:
+        return idx, None
+    
     ground_truth = item["ground_truth"]
     results = None 
     init_worker(evaluator_names, use_openai, model, version)
@@ -29,7 +32,7 @@ def process_item(item, language="zh", idx=0, evaluator_names=None, use_openai=Fa
             item.update(result)
     return idx, item
 
-def process_jsonl(input_file, output_file, evaluator_names, num_workers, use_openai=False, language="zh", model='gpt-4o-mini', version='v1'):
+def process_jsonl(input_file, output_file, evaluator_names, num_workers, use_openai=False, language="zh", model='gpt-oss:20b', version='v1'):
     input_path = Path(input_file)
     output_path = Path(output_file)
 
@@ -41,13 +44,16 @@ def process_jsonl(input_file, output_file, evaluator_names, num_workers, use_ope
     with open(input_path, "r", encoding="utf-8") as f_in:
         items = [json.loads(line) for line in f_in]
     if language == "auto":
-        items_to_process = [(item, item["language"]) for item in items if item["query"]["query_id"] not in processed_ids]
+        items_to_process = [(item, item.get("language", "en")) for item in items if item["query"]["query_id"] not in processed_ids]
     else:
         items_to_process = [(item, language) for item in items if item["query"]["query_id"] not in processed_ids]
 
     init_worker(evaluator_names, use_openai, model, version)
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(process_item, item, language, idx, evaluator_names, use_openai, model, version) for idx, (item, language) in enumerate(items_to_process)]
+        
+        # Ensure output directory exists before writing
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(output_file, "a", encoding="utf-8") as f_out:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing items"):
@@ -59,21 +65,36 @@ def process_jsonl(input_file, output_file, evaluator_names, num_workers, use_ope
 
 
 
-import os
-
-# ... (rest of the imports) ...
-
-# ... (process_item and other functions) ...
-
 def main():
     parser = argparse.ArgumentParser(description="Process JSONL file and evaluate completeness.")
-    # ... (argument parsing) ...
+    parser.add_argument("--input_file", help="Path to the input JSONL file")
+    parser.add_argument("--output_file", help="Path to the output JSONL file")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of worker processes")
+    parser.add_argument("--language", type=str, help="Language for the metric")
+    
+    # New arguments to match run_evaluation.sh
+    parser.add_argument("--metric", type=str, help="Specific metric to run (optional)")
+    parser.add_argument("--use_openai", action="store_true", help="Whether to use OpenAI/LLM for evaluation")
+    parser.add_argument("--model", type=str, default="granite4:3b", help="Model name for evaluation")
+    parser.add_argument("--version", type=str, default="v2", help="Version of the keypoint metrics")
 
-    # Dynamically get the judge model from environment variables, with a fallback
-    judge_model = os.getenv("JUDGE_MODEL", "gemma:2b")
-
-    evaluator_names = ["rouge-l", "precision", "recall", "eir", "keypoint_metrics"]
-    process_jsonl(args.input_file, args.output_file, evaluator_names, args.num_workers, True, args.language, judge_model, "v1")#裁判模型
+    args = parser.parse_args()
+    
+    if args.metric:
+        evaluator_names = [args.metric]
+    else:
+        evaluator_names = ["rouge-l", "words_precision", "words_recall", "sentences_precision", "sentences_recall", "keypoint_metrics"]
+    
+    process_jsonl(
+        args.input_file, 
+        args.output_file, 
+        evaluator_names, 
+        args.num_workers, 
+        use_openai=args.use_openai, 
+        language=args.language, 
+        model=args.model, 
+        version=args.version
+    )
 
 if __name__ == "__main__":
     main()
