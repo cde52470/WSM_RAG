@@ -9,9 +9,8 @@ from generator import generate_answer
 from ollama import Client
 import argparse
 
-# --- [NEW] Sentence Selection and Multi-Query Functions ---
+# --- 讓references只提取最重要的sentence，不要整個chunk塞進去 ---
 def _split_sentences(text: str, language: str):
-    """Very simple sentence splitter for zh / en."""
     if not text:
         return []
     if language == "zh":
@@ -28,43 +27,62 @@ def _split_sentences(text: str, language: str):
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
-def _select_reference_sentences(query_text: str, retrieved_chunks, language: str, max_refs: int = 5):
-    """Selects the most relevant sentences from retrieved chunks as references."""
+# --- Selects the most relevant sentences from retrieved chunks as references. ---
+def _select_reference_sentences(query_text: str, retrieved_chunks, language: str, max_refs: int = 10):
     if not retrieved_chunks:
         return []
-    candidate_sentences = []
-    for chunk in retrieved_chunks:
-        text = chunk.get("page_content", "")
-        for sent in _split_sentences(text, language):
-            if sent.strip():
-                candidate_sentences.append(sent.strip())
-    if not candidate_sentences:
-        return []
 
+    # --- 預處理 Query Tokens ---
     if language == "zh":
-        q_tokens = set(token for token in jieba.cut(query_text) if token.strip())
-        def sent_score(sent: str):
-            s_tokens = set(token for token in jieba.cut(sent) if token.strip())
-            if not s_tokens: return 0.0
-            return len(q_tokens & s_tokens) / (len(s_tokens) + 1e-8)
+        query_tokens = set(token for token in jieba.cut(query_text) if token.strip())
     else:
         word_re = re.compile(r"\w+")
-        q_tokens = set(w.lower() for w in word_re.findall(query_text))
-        def sent_score(sent: str):
-            s_tokens = set(w.lower() for w in word_re.findall(sent))
-            if not s_tokens: return 0.0
-            return len(q_tokens & s_tokens) / (len(s_tokens) + 1e-8)
+        query_tokens = set(w.lower() for w in word_re.findall(query_text))
 
-    scored = sorted([(sent, sent_score(sent)) for sent in candidate_sentences], key=lambda x: x[1], reverse=True)
-    references = [sent for sent, score in scored if sent not in locals().get('references', [])][:max_refs]
+    candidate_sentences_with_score = []
+    seen_sentences = set() 
+
+    # 只對top10以內的chunk去做執行
+    top_k_chunks = retrieved_chunks[:10] 
+    
+    for chunk in top_k_chunks:
+        text = chunk.get("page_content", "")
+    
+        for sent in _split_sentences(text, language):
+            sent = sent.strip()
+            
+            if sent and sent not in seen_sentences:
+                score = _calculate_similarity(query_tokens, sent, language)
+                candidate_sentences_with_score.append((sent, score))
+                seen_sentences.add(sent)
+
+    # --- sentences排序 ---
+    candidate_sentences_with_score.sort(key=lambda x: x[1], reverse=True)
+
+    # 取出前 max_refs 
+    references = [item[0] for item in candidate_sentences_with_score[:max_refs]]
     return references
 
+def _calculate_similarity(query_tokens, sent: str, language: str) -> float:
+    if not sent.strip():
+        return 0.0
+
+    if language == "zh":
+        s_tokens = set(token for token in jieba.cut(sent) if token.strip())
+    else:
+        word_re = re.compile(r"\w+")
+        s_tokens = set(w.lower() for w in word_re.findall(sent))
+
+    if not s_tokens:
+        return 0.0
+    return len(query_tokens & s_tokens) / (len(s_tokens) + 1e-8)
+
+# --- 將「一個問題」，透過 LLM 擴寫成「多個不同問法」，藉此增加在資料庫中撈到正確文章的機率 ---
 def generate_multiple_queries(original_query: str, ollama_client: Client) -> list[str]:
-    """Generates variations of the original query using an LLM."""
     prompt = f"""You are a helpful assistant. Your task is to generate 3 different versions of the given user question to retrieve relevant documents. Provide these alternative questions separated by newlines. Only provide the questions, no other text.
 Original question: {original_query}"""
     try:
-        model_name = os.getenv("REWRITER_MODEL", "gemma:2b")
+        model_name = os.getenv("REWRITER_MODEL", "granite4:3b")
         response = ollama_client.generate(model=model_name, prompt=prompt, stream=False)
         generated_text = response.get("response", "")
         queries = [q.strip() for q in generated_text.split('\n') if q.strip()]
@@ -104,18 +122,13 @@ def main(query_path, docs_path, language, output_path):
         original_query_text = query['query']['content']
         qLanguage = query.get("language", language) or "en"
         
-        # --- Multi-Query Enabled for Phase 2 Experiment ---
-        # 4a. Generate multiple queries
+        # --- 原本的問題改寫成 3 個不同的問法 ---
         all_queries = generate_multiple_queries(original_query_text, ollama_client)
         
-        # 4b. Retrieve for all generated queries
-        # The retriever expects a single query. We need to collect results from all queries.
         retrieved_chunks_list = []
         for q in all_queries:
             retrieved_chunks_list.extend(retriever.retrieve(q, top_k=10)) # Retrieve top 10 for each query
 
-        # Deduplicate chunks to avoid redundant processing, though their scores might be different
-        # For this experiment, we'll just combine them and assume the generator handles duplicates.
         final_chunks = retrieved_chunks_list
         # --- End Multi-Query Enabled ---
 

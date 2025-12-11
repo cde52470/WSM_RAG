@@ -13,6 +13,7 @@ pydantic==2.12.4
 PyYAML
 rank_bm25==0.2.2
 tqdm==4.67.1
+langchain
 nltk
 sentence-transformers
 numpy
@@ -20,3 +21,4 @@ pysbd
 rouge
 rouge-chinese
 openai
+langchain-text-splitters

@@ -227,7 +227,6 @@ class EnsembleRetriever:
         beta = self.weights["bm25"]
 
         for idx in all_indices:
-            #
             s_bm25 = bm25_norm.get(idx, 0.0)
             s_vec = vec_norm.get(idx, 0.0)
             
@@ -254,11 +253,10 @@ class EnsembleRetriever:
 
         # 5. 最終排序
         merged_results.sort(key=lambda x: x["score"], reverse=True)
-        
-        # 回傳 Top-K 的原始 chunk 內容
-        return []
-        #return [item["chunk"] for item in merged_results[:top_k]]
+        final_top_chunks = [item["chunk"] for item in merged_results[:top_k]]
+        #assert final_top_chunks != [], "Final top chunks should not be empty."
+        return final_top_chunks
 
-def create_retriever(chunks, language, **kwargs):
-    # 如果未來要用 index_path，可以從 kwargs.get("index_path") 取得
-    return EnsembleRetriever(chunks, language)
+def create_retriever(chunks, language, index_path=None):
+    # assert chunks == [], "Chunks should not be empty."
+    return EnsembleRetriever(chunks, language, index_path=index_path)
