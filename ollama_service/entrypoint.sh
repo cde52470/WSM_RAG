@@ -32,6 +32,8 @@ echo "Pulling gemma:2b model (this will only happen if it's missing)..."
 # 4. 伺服器已就緒，現在才 pull 模型
 ollama pull gemma:2b
 ollama pull granite4:3b
+ollama pull embeddinggemma:300m
+ollama pull qwen3-embedding:0.6b
 
 echo "Model pull complete. Server is running and listening on 0.0.0.0"
 

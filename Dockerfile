@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY rageval/evaluation/requirements.txt ./evaluation-requirements.txt
 RUN pip install --no-cache-dir -r evaluation-requirements.txt
 
+# Download NLTK data during build
+RUN python3 -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('porter_stemmer', quiet=True); nltk.download('punkt_tab', quiet=True)"
+
 # 複製專案內所有檔案到工作目錄
 COPY . .
 
