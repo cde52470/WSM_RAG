@@ -154,9 +154,9 @@ def generate_answer(query, context_chunks):
         # 【中文 Prompt：強調推論與格式】
         prompt = (
             "你是一個嚴謹的問答助手。請僅根據提供的「參考內容」回答問題。\n"
-            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n"
+            "若參考內容中沒有答案，請直接說「我不知道」，不可編造。\n\n"
             "嚴格比對公司名稱與年份，不要混淆不同公司／年份的數據\n"
-            "如果 context 提到股息或影響，務必寫出，不要遺漏\n\n"
+            "如果 context 提到股息或影響，務必寫出，不要遺漏\n"
             "請嚴格遵守以下輸出格式：\n"
             "思考過程：<請在此簡短分析參考內容與問題的關聯>\n"
             "最終答案：<請在此給出最終的繁體中文回答，不超過三句話>\n\n"
@@ -167,9 +167,9 @@ def generate_answer(query, context_chunks):
         # 【英文 Prompt：強調 Reasoning 與 Format】
         prompt = (
             "You are a strict assistant. Answer the question based ONLY on the provided context.\n"
-            "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n"
+            "If the answer is not in the context, say 'I don't know'. Do not hallucinate.\n\n"
             "Verify company names and years exactly match the question; do not mix different entities.\n"
-            "If context mentions dividends or their impacts, include them and don't omit available facts.\n\n"
+            "If context mentions dividends or their impacts, include them and don't omit available facts.\n"
             "Please follow this format strictly:\n"
             "Thinking: <Briefly analyze the context and reasoning here>\n"
             "Answer: <Provide the final concise answer here, max 3 sentences>\n\n"
